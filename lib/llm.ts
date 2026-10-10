@@ -6,7 +6,7 @@ type Provider = "gemini" | "groq" | "openai";
 const PROVIDERS: Record<Provider, { baseUrl: string; model: string }> = {
   gemini: {
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.5-flash",
+    model: "gemini-3.8-flash",
   },
   groq: { baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
   openai: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
@@ -29,7 +29,31 @@ export interface ChatMessage {
 
 // Free Gemini keys have small per-model rate limits and models get renamed over time.
 // So for Gemini we keep a chain of models and move to the next one on 404 / 429 / 5xx.
-const GEMINI_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
+let GEMINI_CHAIN = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-flash-lite-latest", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+let discovered = false;
+
+/** Asks the API which models this key can use, and puts the newest Flash models first. */
+async function discoverGeminiModels(baseUrl: string, apiKey: string) {
+  if (discovered) return;
+  discovered = true;
+  try {
+    const res = await fetch(`${baseUrl}/models`, { headers: { Authorization: `Bearer ${apiKey}` } });
+    if (!res.ok) return;
+    const data = await res.json();
+    const ids: string[] = (data?.data ?? [])
+      .map((m: { id?: string }) => String(m.id ?? "").replace(/^models\//, ""))
+      .filter((id: string) => /flash/.test(id) && !/image|tts|audio|live|embed|vision|thinking|exp/.test(id));
+    const version = (id: string) => Number((id.match(/gemini-(\d+(?:\.\d+)?)/) ?? [])[1] ?? 0);
+    // Newest first; stable before preview; full Flash before Lite.
+    ids.sort(
+      (a, b) =>
+        version(b) - version(a) ||
+        Number(a.includes("preview")) - Number(b.includes("preview")) ||
+        Number(a.includes("lite")) - Number(b.includes("lite"))
+    );
+    if (ids.length) GEMINI_CHAIN = [...new Set([...ids.slice(0, 4), ...GEMINI_CHAIN])];
+  } catch {}
+}
 const cooldown = new Map<string, number>(); // model -> time it can be used again
 let lastGood = "";
 
@@ -74,9 +98,11 @@ export async function chatJSON<T>(
 
   const envModel = (process.env.LLM_MODEL || "").trim();
   let models = [cfg.model];
-  if (cfg.provider === "gemini" && !envModel) {
+  if (cfg.provider === "gemini") {
+    await discoverGeminiModels(cfg.baseUrl, cfg.apiKey);
     const now = Date.now();
-    const ordered = lastGood ? [lastGood, ...GEMINI_CHAIN.filter((m) => m !== lastGood)] : GEMINI_CHAIN;
+    const chain = envModel ? [envModel, ...GEMINI_CHAIN.filter((m) => m !== envModel)] : GEMINI_CHAIN;
+    const ordered = lastGood ? [lastGood, ...chain.filter((m) => m !== lastGood)] : chain;
     const ready = ordered.filter((m) => (cooldown.get(m) ?? 0) <= now);
     models = ready.length ? ready : ordered;
   }
@@ -91,7 +117,7 @@ export async function chatJSON<T>(
     };
     if (cfg.provider !== "gemini") body.response_format = { type: "json_object" };
     // Gemini 2.5 Flash "thinks" by default, which adds seconds of delay. Turn it off.
-    if (cfg.provider === "gemini" && model.includes("2.5")) body.reasoning_effort = "none";
+    if (cfg.provider === "gemini") body.reasoning_effort = model.includes("2.5") ? "none" : "low";
     try {
       let content: string;
       try {

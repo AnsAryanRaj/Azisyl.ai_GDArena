@@ -40,7 +40,7 @@ export async function POST(request: Request) {
 
   try {
     const out = await chatJSON<{ speaker?: string; text?: string; asksHuman?: boolean }>(turnMessages(req), {
-      maxTokens: 220,
+      maxTokens: 1024,
       temperature: 0.95,
       timeoutMs: 12000,
     });

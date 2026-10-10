@@ -16,7 +16,7 @@ export async function GET(request: Request) {
         { role: "system", content: 'Reply with JSON only: {"ok": true}' },
         { role: "user", content: "ping" },
       ],
-      { maxTokens: 20, temperature: 0, timeoutMs: 12000 }
+      { maxTokens: 256, temperature: 0, timeoutMs: 12000 }
     );
     return NextResponse.json({ ...base, ok: true, ms: Date.now() - started });
   } catch (e) {

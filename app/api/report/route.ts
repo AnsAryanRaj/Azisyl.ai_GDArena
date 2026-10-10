@@ -49,7 +49,7 @@ export async function POST(request: Request) {
 
   try {
     const raw = await chatJSON<Partial<Report>>(reportMessages(config, transcript, stats), {
-      maxTokens: 1400,
+      maxTokens: 3000,
       temperature: 0.4,
       timeoutMs: 25000,
     });

@@ -19,7 +19,7 @@ export async function POST(request: Request) {
   if (!config) return NextResponse.json({ error: "Missing room settings." }, { status: 400 });
   if (llmConfig().demo) return NextResponse.json({ plan: mockPlan(config), demo: true });
   try {
-    const raw = await chatJSON<Record<string, unknown>>(planMessages(config), { maxTokens: 900, temperature: 0.8, timeoutMs: 15000 });
+    const raw = await chatJSON<Record<string, unknown>>(planMessages(config), { maxTokens: 2048, temperature: 0.8, timeoutMs: 15000 });
     const plan = cleanPlan(raw) ?? {};
     // Fill anyone the model skipped.
     const backup = mockPlan(config);
