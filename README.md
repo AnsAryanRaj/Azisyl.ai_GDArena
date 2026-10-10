@@ -11,6 +11,11 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 **Done**
 
 - Setup: topic list by category (current affairs, business, tech, social, regional, abstract, controversial, case), custom topic, panel size 3 to 5, duration, English or Hinglish, student name
+- Choose your side: argue in favour, against, or decide as you go. When you pick a side, the panel is set up so at least two AI participants take the opposite side and challenge you, and the report checks whether you held your side
+- Live transcription: while you speak, your words appear live in the caption box and as a "speaking now" line in the transcript
+- Custom topic: type any topic, or use the Custom tab
+- Silent nudges (visual only, never spoken): after 1, 2 or 3 minutes of silence (you choose, or turn them off), when Arjun is holding the floor, when you are talking too much, and when a turn runs too long
+- "What you could have said" replay: up to three missed openings, each with why it was an opening and a sample line. Play the moment to hear the line and then the suggested answer, and see it highlighted in the transcript
 - Four GD formats: standard, case-based (the moderator reads out a business case), controversial (sharper disagreement, moderator keeps it respectful) and fishbowl (the student watches the AI panel first, then the moderator brings them in)
 - Live spoken discussion: push-to-talk speech recognition with live captions, AI participants speak out loud with different voices, pitch and speed. Voices match each participant's gender (female voices for Ms. Rao, Priya and Meera, male voices for Arjun, Kabir and Rohan), with a pitch fallback on devices that only have one kind of voice
 - Five personalities plus a moderator: the dominator, the data-driven one, the quiet one, the one who drifts, the consensus builder

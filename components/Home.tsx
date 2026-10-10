@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { readHistory, summarise, type HistoryItem } from "@/lib/progress";
 import { MODERATOR, PANEL } from "@/lib/personas";
 import { FORMATS, TOPICS, type Topic } from "@/lib/topics";
-import type { GdFormat, Language, RoomConfig } from "@/lib/types";
+import type { GdFormat, Language, RoomConfig, Side } from "@/lib/types";
 import Avatar from "./Avatar";
 import Feedback from "./Feedback";
 import { LogoMark, MicIcon, SparkIcon } from "./Icons";
@@ -16,7 +16,18 @@ interface Props {
   onStart: (c: RoomConfig) => void;
 }
 
-const KINDS: ("All" | Topic["kind"])[] = ["All", "Current affairs", "Business", "Tech", "Social", "Regional", "Abstract", "Controversial", "Case"];
+const KINDS: ("All" | "Custom" | Topic["kind"])[] = [
+  "All",
+  "Current affairs",
+  "Business",
+  "Tech",
+  "Social",
+  "Regional",
+  "Abstract",
+  "Controversial",
+  "Case",
+  "Custom",
+];
 
 export default function Home({ initial, demo, aiError, onStart }: Props) {
   const [kind, setKind] = useState<(typeof KINDS)[number]>("All");
@@ -26,6 +37,7 @@ export default function Home({ initial, demo, aiError, onStart }: Props) {
   const [language, setLanguage] = useState<Language>(initial?.language ?? "english");
   const [name, setName] = useState(initial?.studentName ?? "");
   const [format, setFormat] = useState<GdFormat>(initial?.format ?? "standard");
+  const [side, setSide] = useState<Side>(initial?.side ?? "open");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [error, setError] = useState("");
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -44,7 +56,7 @@ export default function Home({ initial, demo, aiError, onStart }: Props) {
   }, [initial?.studentName]);
 
   const shown = useMemo(
-    () => (kind === "All" ? TOPICS.slice(0, 4) : TOPICS.filter((t) => t.kind === kind)),
+    () => (kind === "All" ? TOPICS.slice(0, 4) : kind === "Custom" ? [] : TOPICS.filter((t) => t.kind === kind)),
     [kind]
   );
 
@@ -60,7 +72,7 @@ export default function Home({ initial, demo, aiError, onStart }: Props) {
       localStorage.setItem("gd-name", studentName);
     } catch {}
     const brief = TOPICS.find((x) => x.text === t)?.brief;
-    onStart({ topic: t.slice(0, 160), panelSize, minutes, language, studentName, format, brief });
+    onStart({ topic: t.slice(0, 160), panelSize, minutes, language, studentName, format, side, brief });
   }
 
   return (
@@ -104,7 +116,19 @@ export default function Home({ initial, demo, aiError, onStart }: Props) {
 
           <div className="tabs glass" role="group" aria-label="Topic type">
             {KINDS.map((k) => (
-              <button type="button" key={k} aria-pressed={kind === k} onClick={() => setKind(k)}>
+              <button
+                type="button"
+                key={k}
+                aria-pressed={kind === k}
+                onClick={() => {
+                  setKind(k);
+                  if (k === "Custom") {
+                    if (TOPICS.some((t) => t.text === topic)) setTopic("");
+                    if (format === "case") setFormat("standard");
+                    setTimeout(() => document.getElementById("topic")?.focus(), 0);
+                  }
+                }}
+              >
                 {k}
               </button>
             ))}
@@ -116,7 +140,7 @@ export default function Home({ initial, demo, aiError, onStart }: Props) {
             </label>
             <input
               id="topic"
-              placeholder="Type any GD topic, or pick one below"
+              placeholder={kind === "Custom" ? "Type your own topic, for example: Should exams be open book?" : "Type any GD topic, or pick one below"}
               value={topic}
               maxLength={160}
               onChange={(e) => {
@@ -150,7 +174,25 @@ export default function Home({ initial, demo, aiError, onStart }: Props) {
             ))}
           </ul>
 
+          {kind === "Custom" && (
+            <p className="custom-hint">Type any topic you want to practise. The AI panel will build its arguments around it.</p>
+          )}
+
           <div className="quick">
+            <div className="qgroup glass" role="group" aria-label="Your side">
+              <span>Your side</span>
+              {(
+                [
+                  ["for", "In favour"],
+                  ["against", "Against"],
+                  ["open", "Decide as I go"],
+                ] as [Side, string][]
+              ).map(([v, label]) => (
+                <button type="button" key={v} aria-pressed={side === v} onClick={() => setSide(v)}>
+                  {label}
+                </button>
+              ))}
+            </div>
             <div className="qgroup glass" role="group" aria-label="GD format">
               <span>Format</span>
               {FORMATS.map((f) => (

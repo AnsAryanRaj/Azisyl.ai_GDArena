@@ -47,6 +47,9 @@ export function mockPlan(config: RoomConfig): Plan {
       ],
     },
   };
+  // If the student argues for, Arjun (the loudest) takes the other side, and the reverse.
+  if (config.side === "for") [all.arjun, all.priya] = [all.priya, all.arjun];
+  if (config.side === "against") all.meera = { ...all.meera, side: "for" };
   const out: Plan = {};
   for (const p of panelFor(config.panelSize)) out[p.id] = all[p.id];
   return out;
@@ -113,7 +116,8 @@ export function mockTurn(req: TurnRequest): TurnResponse {
   } else {
     const prev = personaById(last?.speakerId ?? "")?.name ?? "everyone";
     const prevSide = plan[last?.speakerId ?? ""]?.side;
-    if (pick.id === "kabir") text = `If I can add one thing to what ${prev} said, nobody has talked about ${point}.`;
+    if (last?.speakerId === MODERATOR.id) text = `Let me start. ${mine.claim} ${cap(point)}.`;
+    else if (pick.id === "kabir") text = `If I can add one thing to what ${prev} said, nobody has talked about ${point}.`;
     else if (pick.id === "meera") text = `This reminds me of ${point}. Isn't that connected to ${short(topicOf(config), 6)}?`;
     else if (pick.id === "rohan") text = `So ${prev} and the others see this differently. Maybe ${point}.`;
     else if (pick.id === "arjun" && prevSide !== mine.side) text = `Sorry to cut in, ${prev}, but${again} ${point}.`;
@@ -158,8 +162,37 @@ export function mockReport(
       { area: "Handling interruptions", score: s(base - 1), verdict: "Arjun took the floor often and you did not push back.", tip: "Say 'Let me finish my point' calmly, then complete it in one sentence.", quoteIds: q(others.filter((l) => l.speakerId === "arjun"), 0) },
       { area: "Ending strongly", score: s(base), verdict: "Your conclusion was short.", tip: "Summarise both sides in one line, then state your final position.", quoteIds: q(mine, mine.length - 1) },
     ],
-    missedOpening: others[1]
-      ? { afterLineId: others[1].id, youCouldHaveSaid: "That is a fair point, but we should also look at who this affects the most." }
-      : null,
+    missedOpening: null,
+    missedOpenings: mockOpenings(transcript),
   };
+}
+
+/** Moments where the student could have come in: questions to them, and long runs without them. */
+function mockOpenings(transcript: { id: string; speakerId: string; text: string }[]) {
+  const out: { afterLineId: string; why: string; youCouldHaveSaid: string }[] = [];
+  let streak = 0;
+  transcript.forEach((l, i) => {
+    const next = transcript[i + 1];
+    if (l.speakerId === "you") {
+      streak = 0;
+      return;
+    }
+    if (l.speakerId !== "moderator") streak += 1;
+    if (next?.speakerId === "you" || out.length >= 3) return;
+    const who = personaById(l.speakerId)?.name ?? "they";
+    if (l.text.includes("?") && i > 0) {
+      out.push({
+        afterLineId: l.id,
+        why: `${who} asked you directly, and you let the question pass.`,
+        youCouldHaveSaid: "Yes, and here is why. My main reason is practical: it changes what students can actually do, and I can give one example.",
+      });
+    } else if (streak === 3) {
+      out.push({
+        afterLineId: l.id,
+        why: "Three people had spoken in a row. A short pause like this is the best time to enter.",
+        youCouldHaveSaid: `If I can come in here, I see it a little differently from ${who}. Let me add one point nobody has raised yet.`,
+      });
+    }
+  });
+  return out;
 }

@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { MODERATOR, panelFor, personaById } from "@/lib/personas";
 import { speakingStats } from "@/lib/stats";
-import type { Line, Report as ReportData, RoomConfig } from "@/lib/types";
+import { assignVoices, speak, stopSpeaking, type AssignedVoice } from "@/lib/speech";
+import type { Line, Persona, Report as ReportData, RoomConfig } from "@/lib/types";
 import { addHistory, readHistory } from "@/lib/progress";
 import Avatar from "./Avatar";
 import Feedback from "./Feedback";
@@ -24,6 +25,12 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
   const [data, setData] = useState<ReportData | null>(null);
   const [error, setError] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const [playing, setPlaying] = useState<string | null>(null);
+  const voices = useRef<Map<string, AssignedVoice>>(new Map());
+  useEffect(() => {
+    assignVoices([MODERATOR, ...panelFor(config.panelSize)]).then((m) => (voices.current = m));
+    return () => stopSpeaking();
+  }, [config.panelSize]);
   const [prevOverall, setPrevOverall] = useState<number | null>(null);
   const saved = useRef(false);
   const stats = speakingStats(lines);
@@ -77,6 +84,37 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
   const nameOf = (id: string) => (id === "you" ? config.studentName : personaById(id)?.name ?? id);
   const colorOf = (id: string) => (id === "you" ? "#ffc531" : personaById(id)?.color ?? "#888");
   const totalSeconds = people.reduce((s, id) => s + (stats[id]?.seconds ?? 0), 0) || 1;
+
+  const openings = (data?.missedOpenings ?? (data?.missedOpening ? [{ ...data.missedOpening, why: "" }] : [])).filter((m) =>
+    byId.has(m.afterLineId)
+  );
+
+  const YOU: Persona = {
+    id: "you",
+    name: config.studentName,
+    role: "You",
+    style: "",
+    voice: { pitch: 1, rate: 1, prefer: ["en-IN"] },
+    color: "#ffc531",
+    gender: "f",
+    look: { skin: "#e8b98f", hair: "#1f1a17", style: "short" },
+  };
+
+  const stopReplay = () => {
+    stopSpeaking();
+    setPlaying(null);
+  };
+
+  // Replays the moment: the line that opened the door, then what the student could have said.
+  const replay = async (key: string, l: Line, suggestion: string) => {
+    stopSpeaking();
+    setPlaying(key);
+    jump(l.id);
+    const p = personaById(l.speakerId) ?? MODERATOR;
+    const first = await speak(l.text, p, voices.current.get(p.id), true);
+    if (!first.interrupted) await speak(suggestion, YOU, undefined, true);
+    setPlaying((cur) => (cur === key ? null : cur));
+  };
 
   const jump = (id: string) => {
     const el = document.getElementById(`line-${id}`);
@@ -201,14 +239,36 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
             ))}
           </ul>
 
-          {data.missedOpening && byId.get(data.missedOpening.afterLineId) && (
+          {openings.length > 0 && (
             <section className="missed" aria-label="What you could have said">
               <h2>What you could have said</h2>
-              <p className="after">
-                After {nameOf(byId.get(data.missedOpening.afterLineId)!.speakerId)} said &ldquo;
-                {byId.get(data.missedOpening.afterLineId)!.text}&rdquo;
+              <p className="after" style={{ marginTop: 0 }}>
+                {openings.length === 1 ? "One moment where you could have come in. Play it" : `${openings.length} moments where you could have come in. Play each one`}{" "}
+                to hear the line, then a way you could have answered.
               </p>
-              <blockquote>&ldquo;{data.missedOpening.youCouldHaveSaid}&rdquo;</blockquote>
+              <ol className="openings">
+                {openings.map((m, i) => {
+                  const l = byId.get(m.afterLineId)!;
+                  const key = `${m.afterLineId}-${i}`;
+                  return (
+                    <li key={key}>
+                      <p className="after">
+                        {clock(l.startedAt)}, after {nameOf(l.speakerId)} said &ldquo;{l.text}&rdquo;
+                      </p>
+                      {m.why && <p className="why">{m.why}</p>}
+                      <blockquote>&ldquo;{m.youCouldHaveSaid}&rdquo;</blockquote>
+                      <div className="opening-actions">
+                        <button className="pill sun" onClick={() => (playing === key ? stopReplay() : replay(key, l, m.youCouldHaveSaid))}>
+                          {playing === key ? "Stop" : "Play this moment"}
+                        </button>
+                        <button className="pill ghost" onClick={() => jump(l.id)}>
+                          Show in transcript
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
             </section>
           )}
 
@@ -217,9 +277,10 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
             <ol className="transcript-list" style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 6 }}>
               {lines.map((l) => {
                 const p = personaById(l.speakerId);
+                const miss = openings.find((m) => m.afterLineId === l.id);
                 return (
+                  <Fragment key={l.id}>
                   <li
-                    key={l.id}
                     id={`line-${l.id}`}
                     className={`tline ${l.speakerId === "you" ? "you" : ""} ${flash === l.id ? "flash" : ""}`}
                   >
@@ -231,6 +292,16 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
                       <div>{l.text}</div>
                     </div>
                   </li>
+                  {miss && (
+                    <li className="tline missed-row">
+                      <span className="missed-dot" aria-hidden="true" />
+                      <div>
+                        <b>Missed opening</b>
+                        <div>You could have said: &ldquo;{miss.youCouldHaveSaid}&rdquo;</div>
+                      </div>
+                    </li>
+                  )}
+                  </Fragment>
                 );
               })}
             </ol>

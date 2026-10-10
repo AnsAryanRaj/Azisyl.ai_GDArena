@@ -82,15 +82,20 @@ export async function POST(request: Request) {
       if (!points.some((p) => p.area.toLowerCase() === f.area.toLowerCase())) points.push(f);
     }
 
-    const mo = raw.missedOpening;
+    const mos = (Array.isArray(raw.missedOpenings) ? raw.missedOpenings : raw.missedOpening ? [raw.missedOpening] : [])
+      .map((m) => ({
+        afterLineId: String(m?.afterLineId ?? "").trim().toUpperCase(),
+        why: String((m as { why?: string })?.why ?? "").slice(0, 200),
+        youCouldHaveSaid: String(m?.youCouldHaveSaid ?? "").slice(0, 300),
+      }))
+      .filter((m) => ids.has(m.afterLineId) && m.youCouldHaveSaid)
+      .slice(0, 3);
     const report: Report = {
       summary: String(raw.summary || "").slice(0, 500) || fallback.summary,
       overall: Math.min(10, Math.max(1, Math.round(Number(raw.overall) || 1))),
       points: points.length ? points : fallback.points,
-      missedOpening:
-        mo && ids.has(String(mo.afterLineId).toUpperCase()) && mo.youCouldHaveSaid
-          ? { afterLineId: String(mo.afterLineId).toUpperCase(), youCouldHaveSaid: String(mo.youCouldHaveSaid).slice(0, 300) }
-          : null,
+      missedOpening: null,
+      missedOpenings: mos.length ? mos : fallback.missedOpenings,
     };
     return NextResponse.json(report);
   } catch (e) {

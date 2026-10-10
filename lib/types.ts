@@ -2,6 +2,8 @@ export type Language = "english" | "hinglish";
 
 export type GdFormat = "standard" | "case" | "controversial" | "fishbowl";
 
+export type Side = "for" | "against" | "open";
+
 export type Phase = "setup" | "intro" | "discussion" | "closing" | "report";
 
 export interface Persona {
@@ -32,6 +34,7 @@ export interface RoomConfig {
   language: Language;
   studentName: string;
   format: GdFormat;
+  side?: Side; // the side the student chose to argue
   brief?: string; // case details, only for case-based GDs
 }
 
@@ -77,5 +80,6 @@ export interface Report {
   overall: number; // 1 to 10
   points: FeedbackPoint[];
   missedOpening?: { afterLineId: string; youCouldHaveSaid: string } | null;
+  missedOpenings?: { afterLineId: string; why: string; youCouldHaveSaid: string }[];
   demo?: boolean;
 }

@@ -47,6 +47,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const [awaitingClosing, setAwaitingClosing] = useState(false);
   const [patience, setPatience] = useState(1.2);
   const [voiceOn, setVoiceOn] = useState(true);
+  const [nudgeAfter, setNudgeAfter] = useState(60); // seconds of silence before a nudge, 0 = off
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const [fallbackReason, setFallbackReason] = useState("");
   const [askedBy, setAskedBy] = useState<string | null>(null); // who just asked the student a question
@@ -72,7 +73,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const voicesRef = useRef<Map<string, AssignedVoice>>(new Map());
   const listenerRef = useRef<Listener | null>(null);
   const prefetchRef = useRef<{ key: number; gen: number; promise: Promise<TurnResponse | null> } | null>(null);
-  const settingsRef = useRef({ patience: 1.2, voiceOn: true });
+  const settingsRef = useRef({ patience: 1.2, voiceOn: true, nudgeAfter: 60 });
   const awaitingClosingRef = useRef(false);
   const watchUntilRef = useRef(0); // fishbowl: student watches until this time
   const inviteDueRef = useRef(false);
@@ -85,7 +86,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const typeInputRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  settingsRef.current = { patience, voiceOn };
+  settingsRef.current = { patience, voiceOn, nudgeAfter };
 
   const setPhase = (p: Phase) => {
     phaseRef.current = p;
@@ -415,6 +416,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
       return;
     }
     addLine("you", text, { durationMs: dur, typed: wasTyped || undefined });
+    if (!wasTyped && dur > 45000 && settingsRef.current.nudgeAfter) {
+      lastNudgeRef.current = performance.now();
+      showToast("That turn was long. Keep turns under 30 to 40 seconds so others can respond.", 6000);
+    }
     lastYouRef.current = performance.now();
     aiStreakRef.current = 0;
     ignoredAsksRef.current = 0;
@@ -552,11 +557,32 @@ export default function Room({ config, onDone, onLeave }: Props) {
       const left = config.minutes * 60 - elapsed() / 1000;
       setSecondsLeft(left);
       if (left <= 0 && !busyRef.current && !talkingRef.current) startClosing(false);
+      // Silent coaching nudges: visual only, never spoken, at most one every 40 seconds.
+      const nudgeAfterS = settingsRef.current.nudgeAfter;
+      if (!nudgeAfterS || left <= 20 || talkingRef.current) return;
       const sinceYou = (performance.now() - (lastYouRef.current || startRef.current)) / 1000;
       const sinceNudge = (performance.now() - lastNudgeRef.current) / 1000;
-      if (sinceYou > 60 && sinceNudge > 60 && left > 20) {
+      if (sinceNudge < 40) return;
+      const nudge = (msg: string) => {
         lastNudgeRef.current = performance.now();
-        showToast(`You have not spoken for ${Math.floor(sinceYou / 60)} minute${sinceYou >= 120 ? "s" : ""}. Jump in at the next pause.`);
+        showToast(msg, 6000);
+      };
+      const ls = linesRef.current;
+      const recent = ls.slice(-3);
+      const you = ls.filter((l) => l.speakerId === "you");
+      const youWords = you.reduce((a, l) => a + l.text.split(/\s+/).length, 0);
+      const allWords = ls.filter((l) => l.speakerId !== "moderator").reduce((a, l) => a + l.text.split(/\s+/).length, 0) || 1;
+      if (sinceYou > nudgeAfterS && sinceNudge > nudgeAfterS) {
+        const m = Math.floor(sinceYou / 60);
+        nudge(
+          m >= 1
+            ? `You have not spoken for ${m} minute${m > 1 ? "s" : ""}. Jump in at the next pause.`
+            : `You have not spoken for ${Math.round(sinceYou)} seconds. Jump in at the next pause.`
+        );
+      } else if (sinceYou > 30 && recent.length === 3 && recent.filter((l) => l.speakerId === "arjun").length >= 2) {
+        nudge("Arjun is holding the floor. Cut in politely: \"If I may add one point...\"");
+      } else if (you.length >= 3 && youWords / allWords > 0.45) {
+        nudge(`You have spoken a lot. Bring someone in: "${panel[panel.length - 1].name}, what do you think?"`);
       }
     }, 250);
 
@@ -591,7 +617,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [lines.length]);
+  }, [lines.length, talking, caption?.text]);
 
   /* ---------- view ---------- */
 
@@ -622,6 +648,9 @@ export default function Room({ config, onDone, onLeave }: Props) {
           <span className="topic-pill glass" title={config.topic}>
             {config.topic}
           </span>
+          {config.side && config.side !== "open" && (
+            <span className="topic-pill glass">You argue: {config.side === "for" ? "In favour" : "Against"}</span>
+          )}
           <span className={`timer-pill ${phase === "discussion" && secondsLeft < 30 ? "low" : ""}`} aria-label={`Time left ${timerText}`}>
             {timerText}
           </span>
@@ -760,6 +789,15 @@ export default function Room({ config, onDone, onLeave }: Props) {
               <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
               AI voices on
             </label>
+            <label>
+              Silent nudges
+              <select value={nudgeAfter} onChange={(e) => setNudgeAfter(Number(e.target.value))} className="nudge-select">
+                <option value={60}>after 1 min quiet</option>
+                <option value={120}>after 2 min quiet</option>
+                <option value={180}>after 3 min quiet</option>
+                <option value={0}>off</option>
+              </select>
+            </label>
           </div>
         </section>
 
@@ -781,6 +819,16 @@ export default function Room({ config, onDone, onLeave }: Props) {
                 </li>
               );
             })}
+            {talking && (
+              <li className="tline you live" aria-live="polite">
+                <Avatar size={32} />
+                <div>
+                  <b>{nameOf("you")}</b>
+                  <span className="tag">speaking now</span>
+                  <div>{caption?.text || "Listening…"}</div>
+                </div>
+              </li>
+            )}
           </ol>
         </section>
       </div>

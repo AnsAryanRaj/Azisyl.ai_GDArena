@@ -44,11 +44,19 @@ const SIDES: Record<string, string> = {
   rohan: "the middle ground, a practical compromise",
 };
 
+export function sideRule(config: RoomConfig) {
+  const n = config.studentName;
+  if (config.side === "for") return `${n} has chosen to argue IN FAVOUR of the topic.`;
+  if (config.side === "against") return `${n} has chosen to argue AGAINST the topic.`;
+  return `${n} has not picked a side and may argue either way.`;
+}
+
 export function planMessages(config: RoomConfig): ChatMessage[] {
   const panel = panelFor(config.panelSize);
   const who = panel.map((p) => `- "${p.id}": ${p.name}, ${p.role}. Takes ${SIDES[p.id]}.`).join("\n");
   const system = `You prepare a realistic campus placement group discussion so it has real disagreement.
 For the topic, give each AI participant a position they will defend for the whole discussion.
+${sideRule(config)}${config.side && config.side !== "open" ? ` So ${config.studentName} is properly challenged, give at least two AI participants the opposite side ("${config.side === "for" ? "against" : "for"}"), at most one the same side, and the rest "middle". Personalities still decide how they argue.` : ""}
 ${who}
 
 For each participant give:
@@ -90,6 +98,7 @@ ${roster}
 - id "moderator": ${MODERATOR.name}. ${MODERATOR.style}
 
 ${formatRule(config)}
+${sideRule(config)} AIs on the other side should challenge ${name}'s arguments directly. AIs on the same side may back ${name} up, but only by adding a new reason.
 
 How a real GD works, and how you must play it:
 1. React first. Every line responds to something specific said just before it: name the person, quote or paraphrase their point, then agree, counter or build on it. No standalone speeches.
@@ -148,6 +157,7 @@ export function reportMessages(config: RoomConfig, transcript: TLine[], stats: S
   const system = `You are a strict but kind placement GD assessor at an Indian campus.
 Assess ONLY the human candidate, ${config.studentName}, whose lines are marked "(the human candidate)".
 ${formatRule(config)}${config.format === "fishbowl" ? " In a fishbowl, give extra weight to how well they used what they heard while watching. Do not mark them down for not starting the discussion." : ""}
+${sideRule(config)}${config.side && config.side !== "open" ? " Judge whether they held that side and defended it with reasons when challenged; mention it in Quality of ideas." : ""}
 Be honest and specific. If they barely spoke, say so plainly. Do not praise things that did not happen.
 
 Score these six areas from 1 (poor) to 5 (excellent), in this order:
@@ -163,10 +173,10 @@ For each area give:
 - "tip": one specific, practical sentence on what to do next time
 - "quoteIds": 1 or 2 transcript line ids (like "L4") that prove the verdict. Use the candidate's own lines where possible; use another person's line when the point is about a moment the candidate missed or handled.
 
-Also give "overall" (1 to 10), "summary" (two plain sentences), and "missedOpening": one moment after line id X where the candidate should have jumped in, with a sample line they could have said.
+Also give "overall" (1 to 10), "summary" (two plain sentences), and "missedOpenings": up to 3 moments where the candidate should have jumped in but did not (for example a direct question to them, a weak argument they could have countered, or a pause). For each: "afterLineId" (the line just before the opening), "why" (one short sentence on why it was an opening) and "youCouldHaveSaid" (one or two natural sentences they could have said, in their own side's voice).
 
 Write in simple everyday English. Reply with JSON only:
-{"summary": "", "overall": 0, "points": [{"area": "", "score": 0, "verdict": "", "tip": "", "quoteIds": [""]}], "missedOpening": {"afterLineId": "", "youCouldHaveSaid": ""}}`;
+{"summary": "", "overall": 0, "points": [{"area": "", "score": 0, "verdict": "", "tip": "", "quoteIds": [""]}], "missedOpenings": [{"afterLineId": "", "why": "", "youCouldHaveSaid": ""}]}`;
 
   const user = `Topic: "${config.topic}"${config.brief ? `\nCase details: ${config.brief}` : ""}
 

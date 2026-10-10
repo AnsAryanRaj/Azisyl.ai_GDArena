@@ -1,4 +1,4 @@
-import type { GdFormat, Language, Plan, RoomConfig } from "./types";
+import type { GdFormat, Language, Plan, RoomConfig, Side } from "./types";
 
 const clean = (v: unknown, max: number) =>
   String(v ?? "")
@@ -19,7 +19,8 @@ export function cleanConfig(raw: unknown): RoomConfig | null {
   const formats: GdFormat[] = ["standard", "case", "controversial", "fishbowl"];
   const format = formats.includes(r.format as GdFormat) ? (r.format as GdFormat) : "standard";
   const brief = clean(r.brief, 600) || undefined;
-  return { topic, panelSize, minutes, language, studentName, format, brief };
+  const side: Side = r.side === "for" || r.side === "against" ? r.side : "open";
+  return { topic, panelSize, minutes, language, studentName, format, side, brief };
 }
 
 const ID = /^L\d{1,4}$/;
