@@ -19,7 +19,18 @@ export default function Lobby({ code, hostKey, config, onStart, onCancel }: Prop
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(false);
   const [copied, setCopied] = useState(false);
-  const link = typeof window !== "undefined" ? `${window.location.origin}/?join=${code}` : "";
+  const [base, setBase] = useState(typeof window !== "undefined" ? window.location.origin : "");
+  const local = typeof window !== "undefined" && /^(localhost|127\.0\.0\.1)$/.test(window.location.hostname);
+  const link = `${base}/?join=${code}`;
+
+  // On a laptop, "localhost" means nothing to a phone. Use the laptop's Wi-Fi address instead.
+  useEffect(() => {
+    if (!local) return;
+    fetch("/api/lan")
+      .then((r) => r.json())
+      .then((d) => d.urls?.[0] && setBase(d.urls[0]))
+      .catch(() => {});
+  }, [local]);
   const seats = Math.max(config.panelSize, friends.length + 2);
   const aiSeats = Math.max(2, seats - friends.length);
 
@@ -96,6 +107,12 @@ export default function Lobby({ code, hostKey, config, onStart, onCancel }: Prop
           <p className="fine">
             They open GD Arena, tap &quot;Join a friend&apos;s room&quot; and type the code, or open this link:
           </p>
+          {local && (
+            <p className="fine lan-note">
+              Running on this laptop: friends must be on the same Wi-Fi or hotspot as you, and type their points (phones allow the mic only on the
+              https site).
+            </p>
+          )}
           <div className="link-row">
             <code>{link}</code>
             <button className="pill plain" onClick={copy}>
