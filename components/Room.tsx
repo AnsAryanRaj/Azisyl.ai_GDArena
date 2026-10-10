@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MODERATOR, panelFor, personaById } from "@/lib/personas";
 import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type AssignedVoice, type ListenError } from "@/lib/speech";
-import type { Line, RoomConfig, TurnResponse } from "@/lib/types";
+import type { Line, Plan, RoomConfig, TurnResponse } from "@/lib/types";
 import Avatar from "./Avatar";
 import { LogoMark, MicIcon, StopIcon } from "./Icons";
 import Table from "./Table";
@@ -15,6 +15,11 @@ interface Props {
   onDone: (lines: Line[]) => void;
   onLeave: () => void;
 }
+
+// After this many AI lines in a row, the next speaker asks the student directly.
+const ASK_AFTER = 2;
+// How long the room holds the floor after someone asks the student a question.
+const ANSWER_WAIT_MS = 8000;
 
 const fmt = (s: number) => {
   const v = Math.max(0, Math.ceil(s));
@@ -43,6 +48,8 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const [patience, setPatience] = useState(1.2);
   const [voiceOn, setVoiceOn] = useState(true);
   const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState("");
+  const [askedBy, setAskedBy] = useState<string | null>(null); // who just asked the student a question
   const [watchLeft, setWatchLeft] = useState(0);
   const fishbowl = config.format === "fishbowl";
   const watchMs = Math.round(Math.min(90, Math.max(45, config.minutes * 60 * 0.3)) * 1000);
@@ -69,6 +76,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const awaitingClosingRef = useRef(false);
   const watchUntilRef = useRef(0); // fishbowl: student watches until this time
   const inviteDueRef = useRef(false);
+  const planRef = useRef<Plan | undefined>(undefined);
+  const aiStreakRef = useRef(0); // AI lines since the student last spoke
+  const ignoredAsksRef = useRef(0); // direct questions the student let pass in a row
+  const awaitingAnswerRef = useRef(false);
   const mountedRef = useRef(true);
   const listRef = useRef<HTMLOListElement>(null);
   const typeInputRef = useRef<HTMLInputElement>(null);
@@ -122,6 +133,11 @@ export default function Room({ config, onDone, onLeave }: Props) {
       forceSpeaker,
       transcript: linesRef.current.map(({ id, speakerId, text }) => ({ id, speakerId, text })),
       secondsLeft: config.minutes * 60 - elapsed() / 1000,
+      plan: planRef.current,
+      // Give the student a real chance: every third AI line asks them something directly.
+      askHuman:
+        phaseRef.current === "discussion" && performance.now() >= watchUntilRef.current && aiStreakRef.current >= ASK_AFTER,
+      ignoredAsks: ignoredAsksRef.current,
       secondsSinceStudentSpoke:
         performance.now() < watchUntilRef.current
           ? 0
@@ -133,7 +149,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
         const res = await fetch("/api/turn", { method: "POST", headers: { "Content-Type": "application/json" }, body });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = (await res.json()) as TurnResponse & { fallback?: boolean };
-        if (data.fallback) setFallbackUsed(true);
+        if (data.fallback) {
+          setFallbackUsed(true);
+          if (data.reason) setFallbackReason(data.reason);
+        }
         return data;
       } catch (e) {
         lastErr = e;
@@ -145,15 +164,17 @@ export default function Room({ config, onDone, onLeave }: Props) {
 
   /* ---------- one AI line, spoken out loud ---------- */
 
-  const aiSpeak = async (speakerId: string, text: string) => {
+  const aiSpeak = async (speakerId: string, text: string, asksHuman = false) => {
     const persona = personaById(speakerId) ?? MODERATOR;
     const line = addLine(speakerId, text);
+    if (phaseRef.current === "discussion") aiStreakRef.current += 1;
     setThinking(false);
     setSpeakingId(speakerId);
     setCaption({ who: persona.name, text });
 
     // While this line plays, start fetching the next one so there is no dead air.
-    if (phaseRef.current === "discussion") {
+    // Not when the line asks the student something: then we wait for their answer first.
+    if (phaseRef.current === "discussion" && !asksHuman) {
       const gen = genRef.current;
       prefetchRef.current = {
         key: linesRef.current.length,
@@ -185,7 +206,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const scheduleNext = (delayMs = settingsRef.current.patience * 1000) => {
     clearNext();
     if (phaseRef.current !== "discussion" || talkingRef.current || busyRef.current || !onlineRef.current) return;
-    timeoutRef.current = setTimeout(runTurn, delayMs);
+    timeoutRef.current = setTimeout(() => {
+      timeoutRef.current = null;
+      runTurn();
+    }, delayMs);
   };
 
   const timeUp = () => elapsed() / 1000 >= config.minutes * 60;
@@ -193,8 +217,21 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const runTurn = async () => {
     if (!mountedRef.current || phaseRef.current !== "discussion" || talkingRef.current || busyRef.current) return;
     if (timeUp()) return startClosing(false);
+    if (awaitingAnswerRef.current) {
+      // The student let a direct question pass.
+      awaitingAnswerRef.current = false;
+      setAskedBy(null);
+      prefetchRef.current = null;
+      ignoredAsksRef.current += 1;
+      if (ignoredAsksRef.current >= 2) {
+        // Called out once already. Let the discussion flow and ask again later.
+        ignoredAsksRef.current = 0;
+        aiStreakRef.current = 0;
+      }
+    }
     busyRef.current = true;
     const gen = genRef.current;
+    let asked = false;
     setThinking(true);
     try {
       if (inviteDueRef.current) {
@@ -218,7 +255,8 @@ export default function Room({ config, onDone, onLeave }: Props) {
         if (gen !== genRef.current || talkingRef.current || phaseRef.current !== "discussion") return;
         failuresRef.current = 0;
         setAiError(false);
-        await aiSpeak(turn.speakerId, turn.text);
+        asked = Boolean(turn.asksHuman) && performance.now() >= watchUntilRef.current;
+        await aiSpeak(turn.speakerId, turn.text, asked);
       }
     } catch {
       failuresRef.current += 1;
@@ -227,9 +265,24 @@ export default function Room({ config, onDone, onLeave }: Props) {
       busyRef.current = false;
       setThinking(false);
     }
-    if (gen !== genRef.current || phaseRef.current !== "discussion") return;
+    if (gen !== genRef.current || phaseRef.current !== "discussion") {
+      // The student cut in while this turn was running. If they typed (so they are not
+      // still talking) and nothing is queued, carry the discussion on from their point.
+      if (phaseRef.current === "discussion" && !talkingRef.current && !timeoutRef.current && !awaitingAnswerRef.current)
+        scheduleNext();
+      return;
+    }
     if (timeUp()) return startClosing(false);
     if (failuresRef.current >= 2) return; // wait for "Try again"
+    if (asked && !talkingRef.current) {
+      // Someone asked the student directly. Hold the floor for them.
+      const who = personaById(linesRef.current[linesRef.current.length - 1]?.speakerId ?? "")?.name ?? "The panel";
+      awaitingAnswerRef.current = true;
+      setAskedBy(who);
+      showToast(`${who} asked you. Tap Speak to answer.`, 6000);
+      scheduleNext(ANSWER_WAIT_MS + settingsRef.current.patience * 1000);
+      return;
+    }
     scheduleNext(failuresRef.current ? 2500 : undefined);
   };
 
@@ -363,6 +416,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
     }
     addLine("you", text, { durationMs: dur, typed: wasTyped || undefined });
     lastYouRef.current = performance.now();
+    aiStreakRef.current = 0;
+    ignoredAsksRef.current = 0;
+    awaitingAnswerRef.current = false;
+    setAskedBy(null);
     if (awaitingClosingRef.current) return void finish();
     if (phaseRef.current === "discussion") {
       if (timeUp()) return void startClosing(false);
@@ -447,6 +504,17 @@ export default function Room({ config, onDone, onLeave }: Props) {
       setTypeOpen(true);
     }
     let cancelled = false;
+    // Decide each AI participant's position while the moderator is opening.
+    fetch("/api/plan", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config }) })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.plan) planRef.current = d.plan;
+        if (d?.fallback) {
+          setFallbackUsed(true);
+          if (d.reason) setFallbackReason(d.reason);
+        }
+      })
+      .catch(() => {});
     assignVoices([MODERATOR, ...panel]).then((m) => {
       if (cancelled) return;
       voicesRef.current = m;
@@ -486,9 +554,9 @@ export default function Room({ config, onDone, onLeave }: Props) {
       if (left <= 0 && !busyRef.current && !talkingRef.current) startClosing(false);
       const sinceYou = (performance.now() - (lastYouRef.current || startRef.current)) / 1000;
       const sinceNudge = (performance.now() - lastNudgeRef.current) / 1000;
-      if (sinceYou > 120 && sinceNudge > 120 && left > 20) {
+      if (sinceYou > 60 && sinceNudge > 60 && left > 20) {
         lastNudgeRef.current = performance.now();
-        showToast("You have not spoken for 2 minutes. Jump in at the next pause.");
+        showToast(`You have not spoken for ${Math.floor(sinceYou / 60)} minute${sinceYou >= 120 ? "s" : ""}. Jump in at the next pause.`);
       }
     }, 250);
 
@@ -583,7 +651,8 @@ export default function Room({ config, onDone, onLeave }: Props) {
       )}
       {fallbackUsed && !aiError && (
         <p className="banner" role="status">
-          The AI service is slow, so some replies are scripted for now.
+          The AI replies failed, so some lines are scripted for now.
+          {fallbackReason ? ` Reason: ${fallbackReason}` : ""}
         </p>
       )}
 
@@ -597,7 +666,14 @@ export default function Room({ config, onDone, onLeave }: Props) {
             <span className="ai-note">All other participants are AI</span>
           </div>
 
-          <Table panel={panel} studentName={config.studentName} speakingId={speakingId} thinking={thinking} topic={config.topic} />
+          <Table
+            panel={panel}
+            studentName={config.studentName}
+            speakingId={speakingId}
+            thinking={thinking}
+            topic={config.topic}
+            yourTurn={Boolean(askedBy) || awaitingClosing}
+          />
 
           <div className="caption" aria-live="polite">
             {caption ? (
@@ -607,6 +683,8 @@ export default function Room({ config, onDone, onLeave }: Props) {
               </>
             ) : thinking ? (
               <div className="caption-who">Someone is about to speak…</div>
+            ) : askedBy ? (
+              <div className="caption-who">{askedBy} asked you. Your turn: tap Speak and answer.</div>
             ) : awaitingClosing ? (
               <div className="caption-who">Your turn: give your closing statement.</div>
             ) : (

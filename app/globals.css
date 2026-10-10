@@ -1753,3 +1753,25 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+/* the student's seat pulses when someone has asked them a question */
+.seat.turn .avatar {
+  animation: turn 1.2s ease-in-out infinite;
+}
+
+@keyframes turn {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px #fff, 0 0 0 6px rgba(255, 197, 49, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 3px #fff, 0 0 0 10px rgba(255, 197, 49, 0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seat.turn .avatar {
+    animation: none;
+    box-shadow: 0 0 0 3px #fff, 0 0 0 7px var(--sun);
+  }
+}

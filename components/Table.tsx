@@ -9,10 +9,11 @@ interface Props {
   speakingId?: string | null;
   thinking?: boolean;
   topic?: string;
+  yourTurn?: boolean;
 }
 
 /** Top-down round table. Moderator at the head, the student at the foot, AI around the sides. */
-export default function Table({ panel, studentName, speakingId, thinking, topic }: Props) {
+export default function Table({ panel, studentName, speakingId, thinking, topic, yourTurn }: Props) {
   type Seat = { id: string; name: string; role: string; persona?: Persona; angle: number };
   const seats: Seat[] = [
     { id: MODERATOR.id, name: MODERATOR.name, role: MODERATOR.role, persona: MODERATOR, angle: -90 },
@@ -38,7 +39,7 @@ export default function Table({ panel, studentName, speakingId, thinking, topic 
         const x = 50 + 42 * Math.cos(rad);
         const y = 50 + 39 * Math.sin(rad);
         const speaking = speakingId === s.id;
-        const cls = ["seat", speaking && "speaking", s.id === "you" && "you", thinking && speaking && "thinking"]
+        const cls = ["seat", speaking && "speaking", s.id === "you" && "you", s.id === "you" && yourTurn && !speaking && "turn", thinking && speaking && "thinking"]
           .filter(Boolean)
           .join(" ");
         return (

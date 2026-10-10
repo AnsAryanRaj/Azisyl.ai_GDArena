@@ -12,12 +12,13 @@ import { LogoMark, MicIcon, SparkIcon } from "./Icons";
 interface Props {
   initial?: RoomConfig | null;
   demo: boolean | null;
+  aiError?: string | null;
   onStart: (c: RoomConfig) => void;
 }
 
 const KINDS: ("All" | Topic["kind"])[] = ["All", "Current affairs", "Business", "Tech", "Social", "Regional", "Abstract", "Controversial", "Case"];
 
-export default function Home({ initial, demo, onStart }: Props) {
+export default function Home({ initial, demo, aiError, onStart }: Props) {
   const [kind, setKind] = useState<(typeof KINDS)[number]>("All");
   const [topic, setTopic] = useState(initial?.topic ?? "");
   const [panelSize, setPanelSize] = useState(initial?.panelSize ?? 4);
@@ -217,6 +218,11 @@ export default function Home({ initial, demo, onStart }: Props) {
             </p>
           )}
           {demo && <p className="ai-chip" style={{ marginTop: 14 }}>Demo mode: scripted replies until an AI key is added</p>}
+          {aiError && (
+            <p className="form-error" role="alert" style={{ maxWidth: 720 }}>
+              The AI is not responding, so replies will be scripted. {aiError}
+            </p>
+          )}
         </form>
         <div className="ground" aria-hidden="true">
           <img src="/ground.svg" alt="" />

@@ -13,11 +13,16 @@ export default function Page() {
   const [lines, setLines] = useState<Line[]>([]);
   const [roomKey, setRoomKey] = useState(0);
   const [demo, setDemo] = useState<boolean | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/status")
+    // One tiny test call, so a wrong key or a rate limit shows up before the demo, not during it.
+    fetch("/api/status?check=1")
       .then((r) => r.json())
-      .then((s) => setDemo(Boolean(s.demo)))
+      .then((s) => {
+        setDemo(Boolean(s.demo));
+        setAiError(s.demo || s.ok ? null : String(s.error || "Unknown error"));
+      })
       .catch(() => setDemo(null));
   }, []);
 
@@ -31,6 +36,7 @@ export default function Page() {
         <Home
           initial={config}
           demo={demo}
+          aiError={aiError}
           onStart={(c) => {
             setConfig(c);
             setRoomKey((k) => k + 1);

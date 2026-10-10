@@ -1,4 +1,4 @@
-import type { GdFormat, Language, RoomConfig } from "./types";
+import type { GdFormat, Language, Plan, RoomConfig } from "./types";
 
 const clean = (v: unknown, max: number) =>
   String(v ?? "")
@@ -34,4 +34,22 @@ export function cleanTranscript(raw: unknown, maxLines = 200) {
       return { id: clean(o.id, 6), speakerId: clean(o.speakerId, 12), text: clean(o.text, 600) };
     })
     .filter((l) => ID.test(l.id) && SPEAKER.test(l.speakerId) && l.text.length > 0);
+}
+
+
+/** Accepts a stance plan from the client or the model, keeping only safe, short fields. */
+export function cleanPlan(raw: unknown): Plan | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const out: Plan = {};
+  for (const [id, v] of Object.entries(raw as Record<string, unknown>)) {
+    const key = id.toLowerCase().trim();
+    if (!/^(arjun|priya|kabir|meera|rohan)$/.test(key) || !v || typeof v !== "object") continue;
+    const o = v as Record<string, unknown>;
+    const claim = clean(o.claim, 220);
+    if (!claim) continue;
+    const side = ["for", "against", "middle"].includes(String(o.side).toLowerCase()) ? String(o.side).toLowerCase() : "middle";
+    const points = (Array.isArray(o.points) ? o.points : []).map((x) => clean(x, 160)).filter(Boolean).slice(0, 4);
+    out[key] = { side, claim, points };
+  }
+  return Object.keys(out).length ? out : undefined;
 }

@@ -1,62 +1,91 @@
-// Demo mode: scripted but varied replies, used when no API key is set
+// Demo mode: scripted but topic-aware replies, used when no API key is set
 // or as a fallback when the AI call fails. Keeps the room usable offline.
-import { panelFor } from "./personas";
-import type { Report, TurnRequest, TurnResponse } from "./types";
+import { MODERATOR, panelFor, personaById } from "./personas";
+import type { Plan, Report, RoomConfig, TurnRequest, TurnResponse } from "./types";
 import type { Stats } from "./prompts";
 
-const BANK: Record<string, string[]> = {
-  arjun: [
-    "Let me be very clear, the answer here is obvious and most of us are overthinking it.",
-    "With respect, that is not the real issue. The real issue is who actually benefits from this.",
-    "Let me stop you there. Theory sounds nice, but companies care about results, not intentions.",
-    "I completely disagree. If we keep saying 'it depends', we will never reach a conclusion.",
-  ],
-  priya: [
-    "If we look at the data, roughly half of the surveys I have seen point the other way.",
-    "That is a strong claim, Arjun. Do we have any evidence for it, or is it just a feeling?",
-    "Around two thirds of recruiters say skills matter more than the label. That changes the picture.",
-    "Let us separate opinion from facts. The trend over the last five years is fairly clear.",
-  ],
-  kabir: [
-    "If I can add one thing, nobody has talked about how this affects small towns.",
-    "Maybe the question is not yes or no, but who gets left out.",
-    "One angle we missed is the long-term cost, not just the short-term gain.",
-  ],
-  meera: [
-    "This reminds me of my cousin's company, they tried something similar and it was so chaotic.",
-    "Actually, isn't the bigger problem that our syllabus is outdated? That is what really bothers me.",
-    "Funny thing, I was reading about Japan's work culture yesterday, it is so different from ours.",
-  ],
-  rohan: [
-    "I think Arjun and Priya are both partly right. Maybe the middle ground is a phased approach.",
-    "So far we agree on the benefits, and we disagree on the cost. Can we focus on that?",
-    "Building on what was just said, the solution could be different for freshers and seniors.",
-  ],
-};
+const topicOf = (c: RoomConfig) => c.topic.replace(/^case:\s*/i, "").replace(/[?.!]+$/, "");
 
-const CLOSING: Record<string, string> = {
-  arjun: "To conclude, my position stays the same: the benefits clearly outweigh the risks.",
-  priya: "To sum up, the evidence supports it, but only with clear rules and measurement.",
-  kabir: "In the end, we must make sure nobody gets left behind.",
-  meera: "Overall, I think it can work, if people are open to change.",
-  rohan: "So the group seems to agree on a balanced, step-by-step approach.",
+export function mockPlan(config: RoomConfig): Plan {
+  const t = topicOf(config);
+  const all: Plan = {
+    arjun: {
+      side: "for",
+      claim: `I strongly support it. On "${t}", the answer is yes.`,
+      points: [
+        "it pushes students and companies to move faster, and India cannot afford to wait",
+        "the people who already tried it are seeing real results",
+        "most of the resistance is just people protecting their comfort zone",
+      ],
+    },
+    priya: {
+      side: "against",
+      claim: `I am not convinced. The evidence on "${t}" points the other way.`,
+      points: [
+        "the costs land first on students and families in small towns",
+        "early results look good, but roughly half of them fade within a year",
+        "nobody has a clear way to measure whether it is actually working",
+      ],
+    },
+    kabir: {
+      side: "middle",
+      claim: "The real question is who gets left out.",
+      points: ["students from tier-3 colleges and small towns", "the long-term effect five years from now", "what it does to fairness and trust"],
+    },
+    meera: {
+      side: "for",
+      claim: "I like the idea, mostly because of what I have seen around me.",
+      points: ["my cousin's experience at a Bengaluru company", "how Instagram and YouTube are shaping this whole debate", "what countries like Japan are doing differently"],
+    },
+    rohan: {
+      side: "middle",
+      claim: "A phased approach with clear rules works best.",
+      points: [
+        "we could start with a pilot in a few colleges or cities",
+        "we review it after six months with real data",
+        "the rules could be different for freshers and for experienced people",
+      ],
+    },
+  };
+  const out: Plan = {};
+  for (const p of panelFor(config.panelSize)) out[p.id] = all[p.id];
+  return out;
+}
+
+const cap = (x: string) => x.charAt(0).toUpperCase() + x.slice(1);
+const short = (x: string, n = 9) => {
+  const w = x.replace(/[.?!]+$/, "").split(/\s+/);
+  return w.length > n ? w.slice(0, n).join(" ") + "…" : w.join(" ");
 };
 
 export function mockTurn(req: TurnRequest): TurnResponse {
-  const panel = panelFor(req.config.panelSize);
-  if (req.forceSpeaker && CLOSING[req.forceSpeaker]) {
-    return { speakerId: req.forceSpeaker, text: CLOSING[req.forceSpeaker], demo: true };
+  const { config } = req;
+  const name = config.studentName;
+  const panel = panelFor(config.panelSize);
+  const plan = req.plan ?? mockPlan(config);
+  const lines = req.transcript;
+  const last = lines[lines.length - 1];
+  const res = (speakerId: string, text: string, asksHuman = false): TurnResponse => ({ speakerId, text, asksHuman, demo: true });
+
+  if (req.forceSpeaker && plan[req.forceSpeaker]) {
+    const st = plan[req.forceSpeaker];
+    return res(req.forceSpeaker, `To conclude, my view has not changed. ${st.claim}`);
   }
-  const last = req.transcript[req.transcript.length - 1]?.speakerId;
-  if (req.secondsSinceStudentSpoke > 90 && last !== "moderator") {
-    return {
-      speakerId: "moderator",
-      text: `${req.config.studentName}, we have not heard from you in a while. What is your view?`,
-      demo: true,
-    };
+
+  const someone = panel.find((p) => p.id !== last?.speakerId) ?? panel[0];
+  if (req.ignoredAsks && req.ignoredAsks >= 1) {
+    return res(
+      MODERATOR.id,
+      `${name}, we have not heard from you yet. In a real GD, staying silent costs marks. Do you agree with ${someone.name} that ${plan[someone.id]?.claim.replace(/\.$/, "").toLowerCase() ?? "this is the right approach"}?`,
+      true
+    );
   }
+  if (req.secondsSinceStudentSpoke > 90 && last?.speakerId !== MODERATOR.id) {
+    return res(MODERATOR.id, `${name}, you have been quiet for a while. What is your view on ${topicOf(config)}?`, true);
+  }
+
   const weights: Record<string, number> = { arjun: 4, priya: 3, rohan: 3, meera: 2, kabir: 1 };
-  const choices = panel.filter((p) => p.id !== last);
+  const choices = panel.filter((p) => p.id !== last?.speakerId);
   const total = choices.reduce((s, p) => s + (weights[p.id] ?? 1), 0);
   let r = Math.random() * total;
   let pick = choices[0];
@@ -67,10 +96,32 @@ export function mockTurn(req: TurnRequest): TurnResponse {
       break;
     }
   }
-  const used = new Set(req.transcript.map((l) => l.text));
-  const options = BANK[pick.id].filter((t) => !used.has(t));
-  const text = (options.length ? options : BANK[pick.id])[Math.floor(Math.random() * (options.length || BANK[pick.id].length))];
-  return { speakerId: pick.id, text, demo: true };
+  const mine = plan[pick.id];
+  const turnsSoFar = lines.filter((l) => l.speakerId === pick.id).length;
+  const point = mine.points[turnsSoFar % mine.points.length];
+  const again = turnsSoFar >= mine.points.length ? " Let me say it differently:" : "";
+
+  let text: string;
+  if (last?.speakerId === "you") {
+    const q = short(last.text);
+    text =
+      mine.side === "against"
+        ? `${name}, you said "${q}", but I disagree.${again} ${cap(point)}.`
+        : mine.side === "for"
+          ? `I agree with ${name} on "${q}". And${again} ${point}.`
+          : `${name} has a fair point about "${q}", but${again} ${point}.`;
+  } else {
+    const prev = personaById(last?.speakerId ?? "")?.name ?? "everyone";
+    const prevSide = plan[last?.speakerId ?? ""]?.side;
+    if (pick.id === "kabir") text = `If I can add one thing to what ${prev} said, nobody has talked about ${point}.`;
+    else if (pick.id === "meera") text = `This reminds me of ${point}. Isn't that connected to ${short(topicOf(config), 6)}?`;
+    else if (pick.id === "rohan") text = `So ${prev} and the others see this differently. Maybe ${point}.`;
+    else if (pick.id === "arjun" && prevSide !== mine.side) text = `Sorry to cut in, ${prev}, but${again} ${point}.`;
+    else if (prevSide && prevSide === mine.side) text = `Building on what ${prev} said,${again} ${point}.`;
+    else text = `${prev}, I hear you, but${again} ${point}.`;
+  }
+  if (req.askHuman) return res(pick.id, `${text} ${name}, what do you think?`, true);
+  return res(pick.id, text);
 }
 
 export function mockReport(

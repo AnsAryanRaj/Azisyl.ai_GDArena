@@ -35,6 +35,14 @@ export interface RoomConfig {
   brief?: string; // case details, only for case-based GDs
 }
 
+/** Each AI participant's position for this GD, decided once at the start. */
+export interface Stance {
+  side: string; // "for", "against" or "middle"
+  claim: string; // one-line position they defend
+  points: string[]; // 2 to 3 arguments they can use, one at a time
+}
+export type Plan = Record<string, Stance>;
+
 export interface TurnRequest {
   config: RoomConfig;
   phase: "discussion" | "closing";
@@ -42,12 +50,18 @@ export interface TurnRequest {
   secondsLeft: number;
   secondsSinceStudentSpoke: number;
   forceSpeaker?: string;
+  plan?: Plan;
+  askHuman?: boolean; // the next speaker must end by asking the human a direct question
+  ignoredAsks?: number; // how many direct questions the human has let pass in a row
 }
 
 export interface TurnResponse {
   speakerId: string;
   text: string;
+  asksHuman?: boolean;
   demo?: boolean;
+  fallback?: boolean;
+  reason?: string;
 }
 
 export interface FeedbackPoint {

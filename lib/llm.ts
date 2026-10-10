@@ -27,22 +27,20 @@ export interface ChatMessage {
   content: string;
 }
 
+// Free Gemini keys have small per-model rate limits and models get renamed over time.
+// So for Gemini we keep a chain of models and move to the next one on 404 / 429 / 5xx.
+const GEMINI_CHAIN = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
+const cooldown = new Map<string, number>(); // model -> time it can be used again
+let lastGood = "";
+
+type LlmError = Error & { status?: number };
+
 export async function chatJSON<T>(
   messages: ChatMessage[],
   opts: { maxTokens?: number; temperature?: number; timeoutMs?: number } = {}
 ): Promise<T> {
   const cfg = llmConfig();
   if (cfg.demo) throw new Error("No API key set");
-
-  const body: Record<string, unknown> = {
-    model: cfg.model,
-    messages,
-    temperature: opts.temperature ?? 0.9,
-    max_tokens: opts.maxTokens ?? 300,
-  };
-  if (cfg.provider !== "gemini") body.response_format = { type: "json_object" };
-  // Gemini 2.5 Flash "thinks" by default, which adds seconds of delay. Turn it off.
-  if (cfg.provider === "gemini") body.reasoning_effort = "none";
 
   const call = async (payload: Record<string, unknown>) => {
     const controller = new AbortController();
@@ -56,33 +54,68 @@ export async function chatJSON<T>(
       });
       if (!res.ok) {
         const text = await res.text().catch(() => "");
-        const err = new Error(`LLM ${res.status}: ${text.slice(0, 200)}`) as Error & { status?: number };
+        const err = new Error(`${payload.model} returned ${res.status}: ${text.replace(/\s+/g, " ").slice(0, 180)}`) as LlmError;
         err.status = res.status;
         throw err;
       }
       const data = await res.json();
       return String(data?.choices?.[0]?.message?.content ?? "");
+    } catch (e) {
+      if ((e as Error).name === "AbortError") {
+        const err = new Error(`${payload.model} timed out`) as LlmError;
+        err.status = 504;
+        throw err;
+      }
+      throw e;
     } finally {
       clearTimeout(timer);
     }
   };
 
-  let content: string;
-  try {
-    content = await call(body);
-  } catch (e) {
-    // Some models reject optional params. Retry once without them.
-    const status = (e as { status?: number }).status;
-    if (status === 400) {
-      const { response_format, reasoning_effort, ...rest } = body;
-      void response_format;
-      void reasoning_effort;
-      content = await call(rest);
-    } else {
-      throw e;
+  const envModel = (process.env.LLM_MODEL || "").trim();
+  let models = [cfg.model];
+  if (cfg.provider === "gemini" && !envModel) {
+    const now = Date.now();
+    const ordered = lastGood ? [lastGood, ...GEMINI_CHAIN.filter((m) => m !== lastGood)] : GEMINI_CHAIN;
+    const ready = ordered.filter((m) => (cooldown.get(m) ?? 0) <= now);
+    models = ready.length ? ready : ordered;
+  }
+
+  let lastErr: LlmError | null = null;
+  for (const model of models) {
+    const body: Record<string, unknown> = {
+      model,
+      messages,
+      temperature: opts.temperature ?? 0.9,
+      max_tokens: opts.maxTokens ?? 300,
+    };
+    if (cfg.provider !== "gemini") body.response_format = { type: "json_object" };
+    // Gemini 2.5 Flash "thinks" by default, which adds seconds of delay. Turn it off.
+    if (cfg.provider === "gemini" && model.includes("2.5")) body.reasoning_effort = "none";
+    try {
+      let content: string;
+      try {
+        content = await call(body);
+      } catch (e) {
+        // Some models reject optional params. Retry once without them.
+        if ((e as LlmError).status !== 400) throw e;
+        const { response_format, reasoning_effort, ...rest } = body;
+        void response_format;
+        void reasoning_effort;
+        content = await call(rest);
+      }
+      lastGood = model;
+      return parseJSON<T>(content);
+    } catch (e) {
+      lastErr = e as LlmError;
+      const st = lastErr.status ?? 0;
+      if (st === 429) cooldown.set(model, Date.now() + 30000);
+      if (st === 404) cooldown.set(model, Date.now() + 10 * 60000);
+      const tryNext = models.length > 1 && (st === 404 || st === 429 || st >= 500);
+      if (!tryNext) throw lastErr;
     }
   }
-  return parseJSON<T>(content);
+  throw lastErr ?? new Error("AI call failed");
 }
 
 export function parseJSON<T>(text: string): T {

@@ -14,6 +14,8 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 - Four GD formats: standard, case-based (the moderator reads out a business case), controversial (sharper disagreement, moderator keeps it respectful) and fishbowl (the student watches the AI panel first, then the moderator brings them in)
 - Live spoken discussion: push-to-talk speech recognition with live captions, AI participants speak out loud with different voices, pitch and speed. Voices match each participant's gender (female voices for Ms. Rao, Priya and Meera, male voices for Arjun, Kabir and Rohan), with a pitch fallback on devices that only have one kind of voice
 - Five personalities plus a moderator: the dominator, the data-driven one, the quiet one, the one who drifts, the consensus builder
+- Real back-and-forth: at the start, each AI participant is given its own position on the topic (for, against or middle) and a few arguments. They defend that position all through, counter each other by name, and must answer the student's exact point when the student speaks. Points already made are not repeated
+- The student gets the floor: after two AI lines in a row, the next speaker asks the student a direct question and the room waits. If the student lets it pass, Ms. Rao points out that silence costs marks and asks again. A silent nudge appears after every minute of silence
 - Natural turn-taking: AI waits for a pause (adjustable), never talks over another AI, and stops the moment the student starts speaking (barge-in). AI participants reply to each other by name
 - Structure: moderator intro, timer, "End discussion", closing round where every AI concludes, then the student gives the last word
 - Report: speaking share per person, six scored skills (starting, ideas, building on others, listening, handling interruptions, ending), each with a verdict, a tip and a clickable transcript quote. "What you could have said" shows one missed opening
@@ -43,6 +45,7 @@ Browser (Next.js, React)
  └─ Room engine     → phases, timer, barge-in, prefetching the next turn
         │  POST /api/turn     (who speaks next + what they say)
         │  POST /api/report   (assessment with quote ids)
+        │  POST /api/plan     (each AI's position, once per room)
         │  POST /api/feedback (rating and comment)
         ▼
 Next.js API routes (server)
@@ -71,6 +74,10 @@ Key choices:
 - **Adjustable patience:** the student chooses how long the AI waits before speaking (also an accessibility feature).
 - **Captions-only mode:** turn AI voices off and follow the live captions.
 - **Demo mode:** the app works end to end without an API key, which keeps the demo safe if the network fails.
+
+## Checking the AI connection
+
+Open `/api/status?check=1` (for example http://localhost:3000/api/status?check=1). It makes one tiny AI call and shows `"ok": true`, or the exact error, such as a wrong key or a rate limit. The home screen shows the same warning. With a free Gemini key the app automatically moves to the next Gemini model if one is rate-limited or retired.
 
 ## How to run it
 

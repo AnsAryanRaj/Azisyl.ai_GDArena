@@ -1,6 +1,6 @@
 import { MODERATOR, panelFor } from "./personas";
 import type { ChatMessage } from "./llm";
-import type { Line, RoomConfig, TurnRequest } from "./types";
+import type { Line, Plan, RoomConfig, TurnRequest } from "./types";
 
 type TLine = Pick<Line, "id" | "speakerId" | "text">;
 
@@ -36,50 +36,97 @@ export function formatRule(config: RoomConfig) {
   }
 }
 
+const SIDES: Record<string, string> = {
+  arjun: "strongly one side (pick the side a confident person would grab)",
+  priya: "the opposite side to Arjun, backed by evidence",
+  kabir: "a nuanced position with an angle nobody else will raise",
+  meera: "loosely on one side, but she keeps bringing in related side issues",
+  rohan: "the middle ground, a practical compromise",
+};
+
+export function planMessages(config: RoomConfig): ChatMessage[] {
+  const panel = panelFor(config.panelSize);
+  const who = panel.map((p) => `- "${p.id}": ${p.name}, ${p.role}. Takes ${SIDES[p.id]}.`).join("\n");
+  const system = `You prepare a realistic campus placement group discussion so it has real disagreement.
+For the topic, give each AI participant a position they will defend for the whole discussion.
+${who}
+
+For each participant give:
+- "side": "for", "against" or "middle"
+- "claim": their position in one specific sentence about this exact topic
+- "points": 3 short, concrete arguments they can use one at a time. Use Indian context where it fits (colleges, companies, cities, rupees, real examples). No two participants share an argument.
+${formatRule(config)}
+${config.language === "hinglish" ? "Write claims and points in natural Hinglish (Roman script)." : "Write in simple English."}
+
+Reply with JSON only, keyed by id: {"${panel[0].id}": {"side": "", "claim": "", "points": ["", "", ""]}}`;
+  return [
+    { role: "system", content: system },
+    { role: "user", content: `Topic: "${config.topic}"${config.brief ? `\nCase details: ${config.brief}` : ""}` },
+  ];
+}
+
 export function turnMessages(req: TurnRequest): ChatMessage[] {
   const { config } = req;
+  const name = config.studentName;
   const panel = panelFor(config.panelSize);
   const roster = panel
-    .map((p) => `- id "${p.id}": ${p.name}, ${p.role}. ${p.style}`)
+    .map((p) => {
+      const st = req.plan?.[p.id];
+      const pos = st
+        ? ` Position (${st.side}): ${st.claim} Arguments to use, one per turn: ${st.points.join(" | ")}.`
+        : "";
+      return `- id "${p.id}": ${p.name}, ${p.role}. ${p.style}${pos}`;
+    })
     .join("\n");
   const last = req.transcript[req.transcript.length - 1];
+  const recentHuman = last?.speakerId === "you" ? last : undefined;
+  const humanBefore = !recentHuman && req.transcript[req.transcript.length - 2]?.speakerId === "you" ? req.transcript[req.transcript.length - 2] : undefined;
 
-  const system = `You run a realistic campus placement group discussion (GD) simulation for practice.
-The human candidate is ${config.studentName}. You never speak for the human.
+  const system = `You run a realistic campus placement group discussion (GD) for practice.
+The human candidate is ${name}. You never speak for the human.
 
-AI participants:
+The panel, with the position each AI defends for the whole discussion:
 ${roster}
 - id "moderator": ${MODERATOR.name}. ${MODERATOR.style}
 
 ${formatRule(config)}
 
-Your job: choose who speaks next and write exactly what they say out loud.
+How a real GD works, and how you must play it:
+1. React first. Every line responds to something specific said just before it: name the person, quote or paraphrase their point, then agree, counter or build on it. No standalone speeches.
+2. The human matters most. When ${name} has just spoken, the next speaker must answer ${name}'s exact point, by name. If the speaker's position disagrees, push back with a clear reason. If it agrees, add a new reason or example. Never ignore the human and never just praise them.
+3. Keep your position. Each AI defends their own position all through the discussion. They may concede a small point ("fair point, but...") but never switch sides. When challenged, defend with a new argument.
+4. Never repeat. Do not reuse an argument, example or phrase already in the transcript, including your own earlier lines. Use your next unused argument, a fresh example, a consequence, or a sharp counter-question.
+5. Stay on this exact topic with concrete details. A generic line that could fit any topic is not allowed. Meera drifts, but to something related to this topic.
+6. Spoken style: 1 to 3 short sentences, at most 40 words (Kabir under 25). Arjun may cut in with "Sorry to cut in" or "Let me stop you there". No lists, markdown, emojis or stage directions.
+7. Who speaks next: never the human, never "${last?.speakerId ?? "none"}". Pick the person with the strongest reason to respond to the last point, often someone who disagrees. Arjun often, Kabir rarely.
+8. The moderator speaks only to bring ${name} in, to point out that ${name} has been quiet, or to stop the group going in circles. The moderator never gives opinions.
+9. No fake precise statistics; use "roughly" or "around".
+10. ${languageRule(config)}
 
-Rules:
-- Never choose the human. Never choose "${last?.speakerId ?? "none"}" (they just spoke).
-- People talk to each other, not only to the human: refer to earlier speakers by name, agree, disagree, rebut or build on a specific point. If the human spoke recently, someone should react to their point.
-- 1 to 3 short spoken sentences, at most 45 words. Kabir stays under 25 words. No lists, markdown, stage directions or emojis.
-- Arjun speaks often, Kabir rarely. Meera drifts off topic and others may pull her back.
-- Do not repeat a point already made. Move the discussion forward with new angles.
-- Choose the moderator only if the human has been silent for more than 90 seconds (then invite them by name), or if the group is going in circles.
-- No fake precise statistics; use words like "roughly" or "around".
-- ${languageRule(config)}
-
-Reply with JSON only: {"speaker": "<id>", "text": "<what they say>"}`;
+Reply with JSON only: {"speaker": "<id>", "text": "<spoken words>", "asksHuman": <true if the line ends with a direct question to ${name}, else false>}`;
 
   let task = `Topic: "${config.topic}"${config.brief ? `\nCase details: ${config.brief}` : ""}
 Time left: about ${Math.max(0, Math.round(req.secondsLeft))} seconds.
-Seconds since ${config.studentName} last spoke: ${Math.round(req.secondsSinceStudentSpoke)}.
+Seconds since ${name} last spoke: ${Math.round(req.secondsSinceStudentSpoke)}.
 
 Transcript so far:
-${formatTranscript(req.transcript, config) || "(nobody has spoken yet after the moderator's opening)"}
-
-Who speaks next, and what do they say?`;
+${formatTranscript(req.transcript, config, 30) || "(nobody has spoken yet after the moderator's opening)"}
+`;
 
   if (req.phase === "closing" && req.forceSpeaker) {
     const who = nameOf(req.forceSpeaker, config);
-    task += `\n\nThis is the closing round. ${who} must speak now and give a one or two sentence conclusion of their own view, under 35 words. Use speaker "${req.forceSpeaker}".`;
+    task += `\nThis is the closing round. ${who} must speak now: one or two sentences that sum up their own position, mention one point from the discussion (including ${name}'s if relevant), under 35 words. Use speaker "${req.forceSpeaker}".`;
+  } else if (req.ignoredAsks && req.ignoredAsks >= 1) {
+    task += `\n${name} did not answer the last question. Use speaker "moderator": politely but clearly point out that ${name} has been quiet, say that in a real GD staying silent costs marks, then give ${name} the floor with one simple, specific question about a point already on the table. Set asksHuman true.`;
+  } else if (recentHuman) {
+    task += `\n${name} just said: "${recentHuman.text}". The next speaker must respond directly to this point, by name. Counter it if their position disagrees, or build on it with something new.`;
+    if (req.askHuman) task += ` Then end with a short follow-up question to ${name}. Set asksHuman true.`;
+  } else if (humanBefore && !req.askHuman) {
+    task += `\n${name} said "${humanBefore.text}" just before the last reply. The next speaker may take the other side of that exchange: either back ${name} up or challenge ${name}, by name, with a new argument.`;
+  } else if (req.askHuman) {
+    task += `\n${name} has not spoken for a while. The next speaker reacts briefly to the last point, then ends with a specific question to ${name} by name, for example whether ${name} agrees with a claim someone just made. Set asksHuman true.`;
   }
+  task += "\nWho speaks next, and what exactly do they say?";
 
   return [
     { role: "system", content: system },
