@@ -71,7 +71,7 @@ export function speak(
 
     const est = estimateMs(text, persona.voice.rate);
     // Chrome sometimes never fires onend. Never let the room get stuck.
-    const guard = setTimeout(() => finish(false), enabled && ttsSupported() ? est * 2 + 4000 : est);
+    let guard = setTimeout(() => finish(false), enabled && ttsSupported() ? est * 2 + 4000 : est);
 
     activeCancel = () => {
       if (ttsSupported()) window.speechSynthesis.cancel();
@@ -92,11 +92,20 @@ export function speak(
     u.onboundary = (e) => {
       spokenChars = e.charIndex;
     };
-    u.onend = () => finish(false);
+    // If the device has no working voice, the engine "ends" instantly.
+    // Then we fall back to captions and wait as long as the line would take to say.
+    const endOrWait = () => {
+      const spent = performance.now() - started;
+      if (spent < est * 0.4) {
+        clearTimeout(guard);
+        guard = setTimeout(() => finish(false), est - spent);
+      } else finish(false);
+    };
+    u.onend = endOrWait;
     u.onerror = (e) => {
       // "interrupted" and "canceled" are expected when the student barges in.
       if (e.error === "interrupted" || e.error === "canceled") finish(true);
-      else finish(false);
+      else endOrWait();
     };
     window.speechSynthesis.cancel();
     window.speechSynthesis.speak(u);

@@ -91,7 +91,7 @@ export function mockReport(
     summary:
       mine.length === 0
         ? "You did not speak in this discussion, so the panel could not assess you. Next time, aim to make your first point in the first minute."
-        : `You spoke ${mine.length} times, for about ${Math.round(you.seconds)} seconds. This is a demo report; add an API key for detailed AI feedback.`,
+        : `You spoke ${mine.length} times, for about ${Math.round(you.seconds)} seconds. Your points were on topic, but you can build more on what others said.`,
     overall: Math.max(1, Math.min(10, base * 2 + (spokeFirst ? 1 : 0))),
     points: [
       {

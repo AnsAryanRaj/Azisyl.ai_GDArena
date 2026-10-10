@@ -212,9 +212,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const intro = async () => {
     const gen = genRef.current;
     const names = panel.map((p) => p.name).join(", ");
+    const topic = /[.?!]$/.test(config.topic) ? config.topic : `${config.topic}.`;
     const text = hinglish
-      ? `Hello everyone, main ${MODERATOR.name} hoon, aaj ki moderator. Aaj ka topic hai: ${config.topic}. Aapke paas ${config.minutes} minute hain. Panel mein hain ${names}, aur ${config.studentName}. Kaun shuru karega?`
-      : `Good morning everyone, I am ${MODERATOR.name}, your moderator. Today's topic is: ${config.topic}. You have ${config.minutes} minutes. With us are ${names}, and ${config.studentName}. Who would like to start?`;
+      ? `Hello everyone, main ${MODERATOR.name} hoon, aaj ki moderator. Aaj ka topic hai: ${topic} Aapke paas ${config.minutes} minute hain. Panel mein hain ${names}, aur ${config.studentName}. Kaun shuru karega?`
+      : `Good morning everyone, I am ${MODERATOR.name}, your moderator. Today's topic is: ${topic} You have ${config.minutes} minutes. With us are ${names}, and ${config.studentName}. Who would like to start?`;
     await aiSpeak(MODERATOR.id, text);
     if (gen !== genRef.current || phaseRef.current !== "intro") return; // student already jumped in
     beginDiscussion(true);

@@ -21,13 +21,14 @@ export default function Table({ panel, studentName, speakingId, thinking, topic 
   const left: Persona[] = [];
   const right: Persona[] = [];
   panel.forEach((p, i) => (i % 2 === 0 ? left : right).push(p));
+  // Spread each side evenly between the moderator (top) and the student (bottom).
   const place = (list: Persona[], from: number, to: number) =>
     list.forEach((p, i) => {
       const t = (i + 1) / (list.length + 1);
       seats.push({ id: p.id, name: p.name, role: p.role, persona: p, angle: from + (to - from) * t });
     });
-  place(left, 220, 140);
-  place(right, -40, 40);
+  place(left, 270, 90);
+  place(right, -90, 90);
 
   return (
     <div className="table-wrap" role="group" aria-label="Discussion table">
@@ -35,7 +36,7 @@ export default function Table({ panel, studentName, speakingId, thinking, topic 
       {seats.map((s) => {
         const rad = (s.angle * Math.PI) / 180;
         const x = 50 + 42 * Math.cos(rad);
-        const y = 50 + 37 * Math.sin(rad);
+        const y = 50 + 39 * Math.sin(rad);
         const speaking = speakingId === s.id;
         const cls = ["seat", speaking && "speaking", s.id === "you" && "you", thinking && speaking && "thinking"]
           .filter(Boolean)
@@ -54,7 +55,7 @@ export default function Table({ panel, studentName, speakingId, thinking, topic 
               {s.name}
               {speaking && <span className="sr-only">, speaking</span>}
             </div>
-            <div className="seat-role">{s.role === "You" ? "Human" : s.role}</div>
+            {s.persona && s.id !== MODERATOR.id && <div className="seat-role">{s.role}</div>}
           </div>
         );
       })}
