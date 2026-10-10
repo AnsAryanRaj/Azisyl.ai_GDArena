@@ -9,6 +9,7 @@ export interface Persona {
   style: string; // instructions for the model
   voice: { pitch: number; rate: number; prefer: string[] };
   color: string;
+  look: { skin: string; hair: string; style: "short" | "long" | "bun" | "curly" | "pony"; glasses?: boolean };
 }
 
 export interface Line {

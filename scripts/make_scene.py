@@ -6,7 +6,7 @@ W, H = 1600, 1000
 out = []
 a = out.append
 
-a(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMax slice">')
+a('@@SVGOPEN@@')
 a('''<defs>
 <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
  <stop offset="0" stop-color="#2a63d6"/><stop offset="0.38" stop-color="#6fa3ee"/>
@@ -43,12 +43,14 @@ def cloud(cx, cy, s, op=0.92):
         g.append(f'<ellipse cx="{cx+dx*s:.1f}" cy="{cy+dy*s:.1f}" rx="{rx*s:.1f}" ry="{ry*s:.1f}" fill="#ffffff"/>')
     g.append('</g>')
     a(''.join(g))
+a('@@CLOUDS_START@@')
 cloud(180, 260, 1.4); cloud(1420, 210, 1.1); cloud(560, 150, 0.8, 0.75); cloud(1040, 330, 0.9, 0.8); cloud(80, 520, 1.0, 0.85); cloud(1530, 470, 0.9, 0.85)
 
 # birds
-for bx, by, s in [(980,240,1),(1010,228,0.8),(1040,250,0.7),(330,180,0.9),(355,168,0.7)]:
+for bx, by, s in [(110,120,1),(140,106,0.8),(1440,130,0.9),(1470,116,0.7),(1495,138,0.6)]:
     a(f'<path d="M{bx} {by} q {6*s} {-6*s} {12*s} 0 q {6*s} {-6*s} {12*s} 0" fill="none" stroke="#2d3b63" stroke-width="2" stroke-linecap="round" opacity="0.7"/>')
 
+a('@@CLOUDS_END@@')
 # hills
 a('<path d="M0 640 C 180 575 360 610 540 590 S 880 545 1100 590 S 1420 560 1600 600 V1000 H0Z" fill="#aab4dc" opacity="0.95" filter="url(#haze)"/>')
 a('<path d="M0 690 C 240 640 460 690 700 665 S 1150 640 1360 680 S 1560 665 1600 672 V1000 H0Z" fill="#8f9fcd"/>')
@@ -174,5 +176,14 @@ for x, y, s in [(780, 840, 1.1), (840, 870, 1.3), (760, 935, 1.7)]:
     person(x, y, s)
 
 a('</svg>')
-open('public/scene.svg', 'w').write('\n'.join(out))
-print(len('\n'.join(out)), 'bytes')
+body = '\n'.join(out)
+full = body.replace('@@SVGOPEN@@', f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" preserveAspectRatio="xMidYMax slice">').replace('@@CLOUDS_START@@','').replace('@@CLOUDS_END@@','')
+open('public/scene.svg','w').write(full)
+pre, rest = body.split('@@CLOUDS_START@@')
+clouds, post = rest.split('@@CLOUDS_END@@')
+defs = pre.split('</defs>')[0] + '</defs>'
+sky = defs.replace('@@SVGOPEN@@', f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} 560" preserveAspectRatio="xMidYMin slice">') + clouds + '</svg>'
+open('public/sky.svg','w').write(sky)
+ground_pre = pre.replace('@@SVGOPEN@@', f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 370 {W} 630" preserveAspectRatio="xMidYMax slice">')
+open('public/ground.svg','w').write(ground_pre + post)
+print(len(full), len(sky), len(ground_pre+post))

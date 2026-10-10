@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { MODERATOR, panelFor, personaById } from "@/lib/personas";
 import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type ListenError } from "@/lib/speech";
 import type { Line, RoomConfig, TurnResponse } from "@/lib/types";
+import Avatar from "./Avatar";
+import { LogoMark, MicIcon, StopIcon } from "./Icons";
 import Table from "./Table";
 
 type Phase = "intro" | "discussion" | "closing" | "done";
@@ -455,58 +457,75 @@ export default function Room({ config, onDone, onLeave }: Props) {
   /* ---------- view ---------- */
 
   const phaseLabel =
-    phase === "intro" ? "Moderator is opening" : phase === "discussion" ? "Discussion" : phase === "closing" ? "Closing round" : "Finished";
+    phase === "intro" ? "Moderator is opening" : phase === "discussion" ? "Discussion live" : phase === "closing" ? "Closing round" : "Finished";
   const talkDisabled = !(phase === "intro" || phase === "discussion" || awaitingClosing) || !online;
   const micMessage: Record<Exclude<MicState, "ok">, string> = {
-    denied: "Microphone is blocked. Allow it from the lock icon in the address bar, or type your points below.",
+    denied: "Microphone is blocked. Allow it from the icon in the address bar, or type your points below.",
     nomic: "No microphone found. Plug one in, or type your points below.",
     unsupported: "Voice input works in Chrome and Edge. You can type your points below.",
     network: "The speech service is not reachable right now. Type your points below.",
   };
+  const timerText = phase === "discussion" ? fmt(secondsLeft) : phase === "intro" ? fmt(config.minutes * 60) : "0:00";
 
   return (
-    <div>
+    <div className="room-view">
+      <div className="scene dim" aria-hidden="true">
+        <img src="/scene.svg" alt="" />
+      </div>
+
+      <header className="room-top">
+        <button className="logo" onClick={onLeave} aria-label="Leave the room and go home">
+          <LogoMark />
+          GD Arena
+        </button>
+        <div className="room-pills">
+          <span className="topic-pill glass" title={config.topic}>
+            {config.topic}
+          </span>
+          <span className={`timer-pill ${phase === "discussion" && secondsLeft < 30 ? "low" : ""}`} aria-label={`Time left ${timerText}`}>
+            {timerText}
+          </span>
+        </div>
+        <button className="pill dark" onClick={onLeave}>
+          Leave room
+        </button>
+      </header>
+
       {!online && (
         <p className="banner error" role="alert">
           You are offline. The discussion is paused and will continue when you reconnect.
         </p>
       )}
       {mic !== "ok" && (
-        <p className="banner warn" role="status">
+        <p className="banner" role="status">
           {micMessage[mic]}
         </p>
       )}
       {aiError && (
         <p className="banner error" role="alert">
-          The AI participants could not reply.{" "}
-          <button className="btn" onClick={retryAi}>
+          The AI participants could not reply.
+          <button className="pill dark" onClick={retryAi}>
             Try again
           </button>
         </p>
       )}
       {fallbackUsed && !aiError && (
-        <p className="banner warn" role="status">
+        <p className="banner" role="status">
           The AI service is slow, so some replies are scripted for now.
         </p>
       )}
 
-      <div className="room">
-        <section aria-label="Discussion room">
-          <div className="room-head">
-            <span className="phase">{phaseLabel}</span>
-            <button className="btn quiet" onClick={onLeave}>
-              Leave room
-            </button>
+      <div className="room-grid">
+        <section className="stage glass" aria-label="Discussion room">
+          <div className="stage-head">
+            <span className="phase">
+              <i aria-hidden="true" />
+              {phaseLabel}
+            </span>
+            <span className="ai-note">All other participants are AI</span>
           </div>
 
-          <Table
-            panel={panel}
-            studentName={config.studentName}
-            speakingId={speakingId}
-            thinking={thinking}
-            topic={config.topic}
-            timer={phase === "discussion" ? fmt(secondsLeft) : phase === "intro" ? fmt(config.minutes * 60) : "0:00"}
-          />
+          <Table panel={panel} studentName={config.studentName} speakingId={speakingId} thinking={thinking} topic={config.topic} />
 
           <div className="caption" aria-live="polite">
             {caption ? (
@@ -524,29 +543,23 @@ export default function Room({ config, onDone, onLeave }: Props) {
           </div>
 
           <div className="controls">
-            <button
-              className="talk"
-              aria-pressed={talking}
-              onClick={toggleTalk}
-              disabled={talkDisabled}
-              aria-describedby="talk-hint"
-            >
-              <span className="dot" aria-hidden="true" />
+            <button className="talk" aria-pressed={talking} onClick={toggleTalk} disabled={talkDisabled} aria-describedby="talk-hint">
               {talking ? "Done speaking" : awaitingClosing ? "Give your closing" : "Speak"}
+              <span className="icon-disc">{talking ? <StopIcon /> : <MicIcon />}</span>
             </button>
             {phase === "discussion" && (
-              <button className="btn" onClick={() => startClosing(true)}>
+              <button className="pill plain" onClick={() => startClosing(true)}>
                 End discussion
               </button>
             )}
             {awaitingClosing && (
-              <button className="btn" onClick={finish}>
+              <button className="pill plain" onClick={finish}>
                 Skip my closing
               </button>
             )}
           </div>
-          <p id="talk-hint" className="fine">
-            Tap Speak (or press the space bar), talk, then tap Done. Speaking stops whoever is talking.
+          <p id="talk-hint" className="hint">
+            Tap Speak or press the space bar, talk, then tap Done. Speaking stops whoever is talking.
           </p>
 
           {typeOpen ? (
@@ -557,19 +570,18 @@ export default function Room({ config, onDone, onLeave }: Props) {
               <input
                 id="typed"
                 ref={typeInputRef}
-                className="input"
                 placeholder="Type your point"
                 value={typed}
                 maxLength={600}
                 onChange={(e) => setTyped(e.target.value)}
                 disabled={talkDisabled}
               />
-              <button className="btn" type="submit" disabled={talkDisabled}>
+              <button className="pill dark" type="submit" disabled={talkDisabled}>
                 Send
               </button>
             </form>
           ) : (
-            <button className="btn quiet" onClick={() => setTypeOpen(true)}>
+            <button className="linkish" onClick={() => setTypeOpen(true)}>
               Type instead
             </button>
           )}
@@ -595,22 +607,21 @@ export default function Room({ config, onDone, onLeave }: Props) {
           </div>
         </section>
 
-        <section className="transcript" aria-label="Live transcript">
+        <section className="transcript glass" aria-label="Live transcript">
           <h2>Live transcript</h2>
           <ol ref={listRef}>
-            {lines.length === 0 && <li className="empty">The moderator will open the discussion.</li>}
+            {lines.length === 0 && <li className="empty">Ms. Rao will open the discussion.</li>}
             {lines.map((l) => {
               const p = personaById(l.speakerId);
               return (
-                <li
-                  key={l.id}
-                  className={`tline ${l.speakerId === "you" ? "you" : ""}`}
-                  style={{ ["--seat-color" as string]: p?.color }}
-                >
-                  <b>{nameOf(l.speakerId)}</b>
-                  {l.interrupted && <span className="tag">cut off</span>}
-                  {l.typed && <span className="tag">typed</span>}
-                  <div>{l.text}</div>
+                <li key={l.id} className={`tline ${l.speakerId === "you" ? "you" : ""}`}>
+                  <Avatar look={p?.look} shirt={p?.color ?? "#ffc531"} size={32} />
+                  <div>
+                    <b>{nameOf(l.speakerId)}</b>
+                    {l.interrupted && <span className="tag">cut off</span>}
+                    {l.typed && <span className="tag">typed</span>}
+                    <div>{l.text}</div>
+                  </div>
                 </li>
               );
             })}
