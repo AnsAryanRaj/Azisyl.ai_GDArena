@@ -1,20 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { friendLook, MODERATOR, panelFor, personaById } from "@/lib/personas";
-import {
-  assignVoices,
-  cloudVoiceAvailable,
-  estimateMs,
-  Listener,
-  onCloudVoiceOff,
-  preloadVoice,
-  setCloudVoiceWanted,
-  speak,
-  stopSpeaking,
-  sttSupported,
-  type AssignedVoice,
-  type ListenError,
-} from "@/lib/speech";
+import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type AssignedVoice, type ListenError } from "@/lib/speech";
 import type { Line, Plan, RoomConfig, TurnResponse } from "@/lib/types";
 import Avatar from "./Avatar";
 import { LogoMark, MicIcon, StopIcon } from "./Icons";
@@ -64,8 +51,6 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const [voiceOn, setVoiceOn] = useState(true);
   const [nudgeAfter, setNudgeAfter] = useState(60); // seconds of silence before a nudge, 0 = off
   const [readFriends, setReadFriends] = useState(true);
-  const [cloudShown, setCloudShown] = useState(() => cloudVoiceAvailable()); // natural voices set up on the server
-  const [naturalOn, setNaturalOn] = useState(true);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const [fallbackReason, setFallbackReason] = useState("");
   const [askedBy, setAskedBy] = useState<string | null>(null); // who just asked the student a question
@@ -200,13 +185,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
       prefetchRef.current = {
         key: linesRef.current.length,
         gen,
-        promise: requestTurn()
-          .then((r) => {
-            // Make the next line's natural voice while this one is still playing.
-            if (r && settingsRef.current.voiceOn) preloadVoice(r.text, r.speakerId);
-            return r;
-          })
-          .catch(() => null),
+        promise: requestTurn().catch(() => null),
       };
     }
 
@@ -741,25 +720,6 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Natural voices: follow the setting, and say so once if they switch off on their own.
-  useEffect(() => {
-    setCloudVoiceWanted(naturalOn);
-  }, [naturalOn]);
-  useEffect(() => {
-    onCloudVoiceOff((reason) => {
-      if (!mountedRef.current) return;
-      setCloudShown(false);
-      showToast(
-        reason === "quota"
-          ? "Natural voice credits ran out. Switched to device voices, the discussion goes on."
-          : "Natural voices are not responding. Switched to device voices, the discussion goes on.",
-        6000
-      );
-    });
-    return () => onCloudVoiceOff(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Space bar toggles the mic, unless you are typing or on another control.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -949,12 +909,6 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
               <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
               AI voices on
             </label>
-            {cloudShown && (
-              <label>
-                <input type="checkbox" checked={naturalOn} disabled={!voiceOn} onChange={(e) => setNaturalOn(e.target.checked)} />
-                Natural AI voices (OpenAI)
-              </label>
-            )}
             {friends.length > 0 && (
               <label>
                 <input type="checkbox" checked={readFriends} onChange={(e) => setReadFriends(e.target.checked)} />

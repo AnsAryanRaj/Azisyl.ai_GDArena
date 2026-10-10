@@ -10,7 +10,6 @@ import Report from "@/components/Report";
 import Room from "@/components/Room";
 import { continueAsGuest, currentUser, logOut, ownerKey, type User } from "@/lib/auth";
 import { setHistoryOwner } from "@/lib/progress";
-import { setCloudVoice } from "@/lib/speech";
 import type { Line, RoomConfig } from "@/lib/types";
 
 type View = "landing" | "auth" | "home" | "lobby" | "room" | "join" | "guest" | "report";
@@ -55,7 +54,6 @@ export default function Page() {
       .then((r) => r.json())
       .then((s) => {
         setDemo(Boolean(s.demo));
-        setCloudVoice(Boolean(s.tts)); // natural OpenAI voices, if the server has a key
         setAiError(s.demo || s.ok ? null : String(s.error || "Unknown error"));
       })
       .catch(() => setDemo(null));
