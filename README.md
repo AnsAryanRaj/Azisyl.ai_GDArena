@@ -2,11 +2,13 @@
 
 **Problem statement 2: GD Arena**
 
+**Live app:** https://azisyl-ai-gd-arena.vercel.app/
+
 ## What it does
 
 GD Arena is a voice-first room where a student practises a campus group discussion (GD) with AI participants. A moderator opens the discussion, 3 to 5 AI participants with different personalities and voices argue with each other and with the student, and a timer and closing round keep it structured like a real GD. At the end, the student gets a report on six GD skills, where every feedback point links to a quoted moment in the transcript.
 
-## Done / Left / Plan
+## Done / Plan
 
 **Done**
 
@@ -33,14 +35,9 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 - Feedback: students rate each session (1 to 5 stars plus a comment) on the report, or any time from "Give feedback" in the menu. Sent to `/api/feedback` and shown in the server logs
 - Demo mode: runs without any API key using scripted replies
 
-**Left**
-
-- Deploy to Vercel and add the live URL here
-- Test with a real API key on venue Wi-Fi and tune the AI wait time
-
 **Plan**
 
-Deploy first, then do two full practice runs on a phone and a laptop, then polish copy and the demo script.
+The app is live and tested with a real API key, including friends joining on the same Wi-Fi. Next, collect feedback from students through the in-app feedback button and use it to tune the AI wait time, voices and topics.
 
 ## Architecture and why
 
@@ -119,7 +116,7 @@ Environment variables (see `.env.example`):
 
 Deploy: import the repo on Vercel, add the same environment variables, deploy. No test login is needed: use "Try it as a guest", or sign up with any email (accounts stay on that device).
 
-Live URL: _add after deployment_
+Live URL: https://azisyl-ai-gd-arena.vercel.app/
 
 ## Tools and AI used
 
