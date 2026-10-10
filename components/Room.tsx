@@ -50,6 +50,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const [patience, setPatience] = useState(1.2);
   const [voiceOn, setVoiceOn] = useState(true);
   const [nudgeAfter, setNudgeAfter] = useState(60); // seconds of silence before a nudge, 0 = off
+  const [readFriends, setReadFriends] = useState(true);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const [fallbackReason, setFallbackReason] = useState("");
   const [askedBy, setAskedBy] = useState<string | null>(null); // who just asked the student a question
@@ -75,7 +76,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const voicesRef = useRef<Map<string, AssignedVoice>>(new Map());
   const listenerRef = useRef<Listener | null>(null);
   const prefetchRef = useRef<{ key: number; gen: number; promise: Promise<TurnResponse | null> } | null>(null);
-  const settingsRef = useRef({ patience: 1.2, voiceOn: true, nudgeAfter: 60 });
+  const settingsRef = useRef({ patience: 1.2, voiceOn: true, nudgeAfter: 60, readFriends: true });
   const awaitingClosingRef = useRef(false);
   const watchUntilRef = useRef(0); // fishbowl: student watches until this time
   const inviteDueRef = useRef(false);
@@ -88,7 +89,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const typeInputRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  settingsRef.current = { patience, voiceOn, nudgeAfter };
+  settingsRef.current = { patience, voiceOn, nudgeAfter, readFriends };
 
   const setPhase = (p: Phase) => {
     phaseRef.current = p;
@@ -465,14 +466,23 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
       stopSpeaking();
       if (phaseRef.current === "intro") beginDiscussion(false);
       addLine(f.id, ev.text, { durationMs: ev.ms || estimateMs(ev.text), typed: ev.typed || undefined });
-      setSpeakingId(null);
       setCaption({ who: f.name, text: ev.text });
       aiStreakRef.current = 0;
       if (friendClosingRef.current?.id === f.id) friendClosingRef.current.done();
-      if (phaseRef.current === "discussion") {
-        if (timeUp()) return void startClosing(false);
-        scheduleNext();
-      }
+      // Read the friend's point out on the host's device too, so a remote friend is heard by the room.
+      const gen = genRef.current;
+      setSpeakingId(f.id);
+      busyRef.current = true;
+      const reader = { ...MODERATOR, id: f.id, name: f.name, voice: { pitch: 1, rate: 1.05, prefer: ["en-IN", "en-GB"] } };
+      speak(ev.text, reader, undefined, settingsRef.current.voiceOn && settingsRef.current.readFriends).then(() => {
+        busyRef.current = false;
+        if (gen !== genRef.current) return;
+        setSpeakingId(null);
+        if (phaseRef.current === "discussion") {
+          if (timeUp()) return void startClosing(false);
+          scheduleNext();
+        }
+      });
     }
   };
 
@@ -896,6 +906,12 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
               <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
               AI voices on
             </label>
+            {friends.length > 0 && (
+              <label>
+                <input type="checkbox" checked={readFriends} onChange={(e) => setReadFriends(e.target.checked)} />
+                Read friends&apos; points aloud
+              </label>
+            )}
             <label>
               Silent nudges
               <select value={nudgeAfter} onChange={(e) => setNudgeAfter(Number(e.target.value))} className="nudge-select">

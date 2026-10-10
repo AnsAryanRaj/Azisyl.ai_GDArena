@@ -42,7 +42,11 @@ export default function FriendRoom({ joined, onDone, onLeave }: Props) {
   const [typed, setTyped] = useState("");
   const [typeOpen, setTypeOpen] = useState(!sttSupported());
   const [micError, setMicError] = useState("");
-  const [voicesOn, setVoicesOn] = useState(false);
+  // On by default: a friend on another laptop or in another room must hear the table.
+  const [voicesOn, setVoicesOn] = useState(true);
+  const [readHumans, setReadHumans] = useState(true);
+  const primed = useRef(false);
+  const queueGen = useRef(0);
   const listenerRef = useRef<Listener | null>(null);
   const talkStart = useRef(0);
   const spokenUpTo = useRef(0);
@@ -98,19 +102,36 @@ export default function FriendRoom({ joined, onDone, onLeave }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config?.panelSize]);
 
+  // Read new lines aloud on this device: AI voices, and other people's points in a neutral voice.
+  // Only real speech is sent between devices as text, so this is how a remote friend "hears" the room.
   useEffect(() => {
-    if (!voicesOn) {
-      spokenUpTo.current = lines.length;
-      return;
+    if (!primed.current) {
+      // Do not replay what was said before this device joined.
+      if (view?.status === "live") {
+        primed.current = true;
+        spokenUpTo.current = Math.max(0, lines.length - 1);
+      } else return;
     }
-    const fresh = lines.slice(spokenUpTo.current).filter((l) => personaById(l.speakerId));
+    const fresh = lines.slice(spokenUpTo.current);
     spokenUpTo.current = lines.length;
-    for (const l of fresh) {
-      const p = personaById(l.speakerId)!;
-      speakingQueue.current = speakingQueue.current.then(() => speak(l.text, p, voices.current.get(p.id), true).then(() => {}));
+    if (talking) return;
+    // If we fall behind, skip to the latest so the room stays in sync.
+    const toSay = fresh.slice(-2).filter((l) => l.speakerId !== "you" && (personaById(l.speakerId) ? voicesOn : readHumans));
+    const gen = queueGen.current;
+    for (const l of toSay) {
+      const p = personaById(l.speakerId);
+      const voiceP = p ?? {
+        ...MODERATOR,
+        id: l.speakerId,
+        name: nameOf(l.speakerId),
+        voice: { pitch: 1, rate: 1.05, prefer: ["en-IN", "en-GB"] },
+      };
+      speakingQueue.current = speakingQueue.current.then(() =>
+        gen === queueGen.current ? speak(l.text, voiceP, p ? voices.current.get(p.id) : undefined, true).then(() => {}) : undefined
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines.length, voicesOn]);
+  }, [lines.length, voicesOn, readHumans, view?.status]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -134,6 +155,8 @@ export default function FriendRoom({ joined, onDone, onLeave }: Props) {
       setTypeOpen(true);
       return;
     }
+    queueGen.current += 1; // drop anything still waiting to be read out
+    speakingQueue.current = Promise.resolve();
     stopSpeaking();
     setTalking(true);
     setInterim("");
@@ -295,8 +318,13 @@ export default function FriendRoom({ joined, onDone, onLeave }: Props) {
           <div className="settings">
             <label>
               <input type="checkbox" checked={voicesOn} onChange={(e) => setVoicesOn(e.target.checked)} />
-              Play AI voices on this device too (use if you are not in the same room as the host)
+              AI voices on this device
             </label>
+            <label>
+              <input type="checkbox" checked={readHumans} onChange={(e) => setReadHumans(e.target.checked)} />
+              Read out what others say
+            </label>
+            <span>Sitting next to the host? Turn both off to avoid an echo.</span>
           </div>
         </section>
 
