@@ -11,6 +11,7 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 **Done**
 
 - Setup: topic list by category (current affairs, business, tech, social, regional, abstract, controversial, case), custom topic, panel size 3 to 5, duration, English or Hinglish, student name
+- Landing page that explains the product, then log in, sign up or continue as a guest. Accounts are kept on the device (name and email only, password stored as a salted SHA-256 hash), so judges never wait on a server. Each account keeps its own progress
 - Choose your side: argue in favour, against, or decide as you go. When you pick a side, the panel is set up so at least two AI participants take the opposite side and challenge you, and the report checks whether you held your side
 - Live transcription: while you speak, your words appear live in the caption box and as a "speaking now" line in the transcript
 - Custom topic: type any topic, or use the Custom tab
@@ -105,7 +106,7 @@ Environment variables (see `.env.example`):
 | `LLM_MODEL` | Optional model override |
 | `LLM_BASE_URL` | Optional, any other OpenAI-compatible endpoint |
 
-Deploy: import the repo on Vercel, add the same environment variables, deploy. No test login is needed.
+Deploy: import the repo on Vercel, add the same environment variables, deploy. No test login is needed: use "Try it as a guest", or sign up with any email (accounts stay on that device).
 
 Live URL: _add after deployment_
 

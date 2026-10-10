@@ -13,11 +13,16 @@ export interface HistoryItem {
   points?: { area: string; score: number }[];
 }
 
-const KEY = "gd-history";
+// Each account (or the guest) gets its own history on this device.
+let owner = "guest";
+export function setHistoryOwner(key: string) {
+  owner = key;
+}
+const keyFor = () => (owner === "guest" ? "gd-history" : `gd-history:${owner}`);
 
 export function readHistory(): HistoryItem[] {
   try {
-    const v = JSON.parse(localStorage.getItem(KEY) || "[]");
+    const v = JSON.parse(localStorage.getItem(keyFor()) || "[]");
     return Array.isArray(v) ? v : [];
   } catch {
     return [];
@@ -26,7 +31,7 @@ export function readHistory(): HistoryItem[] {
 
 export function addHistory(item: HistoryItem) {
   try {
-    localStorage.setItem(KEY, JSON.stringify([item, ...readHistory()].slice(0, 30)));
+    localStorage.setItem(keyFor(), JSON.stringify([item, ...readHistory()].slice(0, 30)));
   } catch {}
 }
 
