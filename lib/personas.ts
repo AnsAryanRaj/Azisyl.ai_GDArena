@@ -71,8 +71,21 @@ export const PANEL: Persona[] = [
   },
 ];
 
+// Looks for real friends who join a shared room.
+export const FRIEND_LOOKS: { look: Persona["look"]; color: string }[] = [
+  { look: { skin: "#d9a77c", hair: "#2b1d14", style: "long" }, color: "#0E8A9E" },
+  { look: { skin: "#b97e55", hair: "#141210", style: "short", glasses: true }, color: "#8A5A00" },
+  { look: { skin: "#f1c7a0", hair: "#3a2618", style: "bun" }, color: "#9C2F6B" },
+  { look: { skin: "#8d5a3b", hair: "#1f1a17", style: "curly" }, color: "#3F6E1E" },
+];
+
+export function friendLook(id: string) {
+  const n = Math.max(1, Math.min(4, Number(id.replace(/\D/g, "")) || 1));
+  return FRIEND_LOOKS[n - 1];
+}
+
 export function panelFor(size: number): Persona[] {
-  const n = Math.min(5, Math.max(3, Math.round(size)));
+  const n = Math.min(5, Math.max(2, Math.round(size)));
   return PANEL.slice(0, n);
 }
 

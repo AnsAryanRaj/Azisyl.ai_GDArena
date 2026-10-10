@@ -7,10 +7,11 @@ interface Props {
   onLogIn: () => void;
   onSignUp: () => void;
   onGuest: () => void;
+  onJoin: () => void;
 }
 
 /** Public landing page: what GD Arena is, and the way in. */
-export default function Landing({ onLogIn, onSignUp, onGuest }: Props) {
+export default function Landing({ onLogIn, onSignUp, onGuest, onJoin }: Props) {
   return (
     <>
       <section className="hero">
@@ -64,6 +65,10 @@ export default function Landing({ onLogIn, onSignUp, onGuest }: Props) {
             Already have an account?{" "}
             <button type="button" className="linkish" onClick={onLogIn} style={{ color: "#fff" }}>
               Log in
+            </button>{" "}
+            or{" "}
+            <button type="button" className="linkish" onClick={onJoin} style={{ color: "#fff" }}>
+              join a friend&apos;s room
             </button>
           </p>
           <ul className="proof" aria-label="What you get">

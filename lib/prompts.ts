@@ -6,6 +6,8 @@ type TLine = Pick<Line, "id" | "speakerId" | "text">;
 
 export function nameOf(id: string, config: RoomConfig) {
   if (id === "you") return `${config.studentName} (the human candidate)`;
+  const friend = config.friends?.find((f) => f.id === id);
+  if (friend) return `${friend.name} (another human participant)`;
   if (id === MODERATOR.id) return `${MODERATOR.name} (moderator)`;
   return panelFor(5).find((p) => p.id === id)?.name ?? id;
 }
@@ -89,13 +91,17 @@ export function turnMessages(req: TurnRequest): ChatMessage[] {
   const last = req.transcript[req.transcript.length - 1];
   const recentHuman = last?.speakerId === "you" ? last : undefined;
   const humanBefore = !recentHuman && req.transcript[req.transcript.length - 2]?.speakerId === "you" ? req.transcript[req.transcript.length - 2] : undefined;
+  const friendLast = last && config.friends?.find((f) => f.id === last.speakerId);
+  const others = config.friends?.length
+    ? `\nOther real people at the table (humans, never speak for them, never choose them): ${config.friends.map((f) => `${f.name} (id "${f.id}")`).join(", ")}. Treat them exactly like ${name}: answer their points by name, challenge them, and bring them in when they are quiet.`
+    : "";
 
   const system = `You run a realistic campus placement group discussion (GD) for practice.
 The human candidate is ${name}. You never speak for the human.
 
 The panel, with the position each AI defends for the whole discussion:
 ${roster}
-- id "moderator": ${MODERATOR.name}. ${MODERATOR.style}
+- id "moderator": ${MODERATOR.name}. ${MODERATOR.style}${others}
 
 ${formatRule(config)}
 ${sideRule(config)} AIs on the other side should challenge ${name}'s arguments directly. AIs on the same side may back ${name} up, but only by adding a new reason.
@@ -130,6 +136,8 @@ ${formatTranscript(req.transcript, config, 30) || "(nobody has spoken yet after 
   } else if (recentHuman) {
     task += `\n${name} just said: "${recentHuman.text}". The next speaker must respond directly to this point, by name. Counter it if their position disagrees, or build on it with something new.`;
     if (req.askHuman) task += ` Then end with a short follow-up question to ${name}. Set asksHuman true.`;
+  } else if (friendLast) {
+    task += `\n${friendLast.name} (a human) just said: "${last!.text}". The next speaker must respond directly to ${friendLast.name}'s point, by name.`;
   } else if (humanBefore && !req.askHuman) {
     task += `\n${name} said "${humanBefore.text}" just before the last reply. The next speaker may take the other side of that exchange: either back ${name} up or challenge ${name}, by name, with a new argument.`;
   } else if (req.askHuman) {

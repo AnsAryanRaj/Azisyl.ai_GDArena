@@ -12,7 +12,9 @@ export function cleanConfig(raw: unknown): RoomConfig | null {
   const r = raw as Record<string, unknown>;
   const topic = clean(r.topic, 160);
   if (topic.length < 2) return null;
-  const panelSize = Math.min(5, Math.max(3, Math.round(Number(r.panelSize) || 4)));
+  // With friends in the room, AI only fills the empty seats, so 2 AI is allowed.
+  const minAi = Array.isArray(r.friends) && r.friends.length ? 2 : 3;
+  const panelSize = Math.min(5, Math.max(minAi, Math.round(Number(r.panelSize) || 4)));
   const minutes = Math.min(15, Math.max(2, Math.round(Number(r.minutes) || 6)));
   const language: Language = r.language === "hinglish" ? "hinglish" : "english";
   const studentName = clean(r.studentName, 30) || "Candidate";
@@ -20,11 +22,15 @@ export function cleanConfig(raw: unknown): RoomConfig | null {
   const format = formats.includes(r.format as GdFormat) ? (r.format as GdFormat) : "standard";
   const brief = clean(r.brief, 600) || undefined;
   const side: Side = r.side === "for" || r.side === "against" ? r.side : "open";
-  return { topic, panelSize, minutes, language, studentName, format, side, brief };
+  const friends = (Array.isArray(r.friends) ? r.friends : [])
+    .map((f) => ({ id: clean((f as Record<string, unknown>)?.id, 3), name: clean((f as Record<string, unknown>)?.name, 30) }))
+    .filter((f) => /^f[1-4]$/.test(f.id) && f.name)
+    .slice(0, 4);
+  return { topic, panelSize, minutes, language, studentName, format, side, brief, friends: friends.length ? friends : undefined };
 }
 
 const ID = /^L\d{1,4}$/;
-const SPEAKER = /^(you|moderator|arjun|priya|kabir|meera|rohan)$/;
+const SPEAKER = /^(you|moderator|arjun|priya|kabir|meera|rohan|f[1-4])$/;
 
 export function cleanTranscript(raw: unknown, maxLines = 200) {
   if (!Array.isArray(raw)) return [];

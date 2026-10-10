@@ -1,6 +1,6 @@
 "use client";
 import { Fragment, useEffect, useRef, useState } from "react";
-import { MODERATOR, panelFor, personaById } from "@/lib/personas";
+import { friendLook, MODERATOR, panelFor, personaById } from "@/lib/personas";
 import { speakingStats } from "@/lib/stats";
 import { assignVoices, speak, stopSpeaking, type AssignedVoice } from "@/lib/speech";
 import type { Line, Persona, Report as ReportData, RoomConfig } from "@/lib/types";
@@ -34,7 +34,7 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
   const [prevOverall, setPrevOverall] = useState<number | null>(null);
   const saved = useRef(false);
   const stats = speakingStats(lines);
-  const people = ["you", ...panelFor(config.panelSize).map((p) => p.id), MODERATOR.id];
+  const people = ["you", ...(config.friends ?? []).map((f) => f.id), ...panelFor(config.panelSize).map((p) => p.id), MODERATOR.id];
 
   const load = async () => {
     setError("");
@@ -81,8 +81,10 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
   }, []);
 
   const byId = new Map(lines.map((l) => [l.id, l]));
-  const nameOf = (id: string) => (id === "you" ? config.studentName : personaById(id)?.name ?? id);
-  const colorOf = (id: string) => (id === "you" ? "#ffc531" : personaById(id)?.color ?? "#888");
+  const nameOf = (id: string) =>
+    id === "you" ? config.studentName : config.friends?.find((f) => f.id === id)?.name ?? personaById(id)?.name ?? id;
+  const colorOf = (id: string) =>
+    id === "you" ? "#ffc531" : personaById(id)?.color ?? (id.startsWith("f") ? friendLook(id).color : "#888");
   const totalSeconds = people.reduce((s, id) => s + (stats[id]?.seconds ?? 0), 0) || 1;
 
   const openings = (data?.missedOpenings ?? (data?.missedOpening ? [{ ...data.missedOpening, why: "" }] : [])).filter((m) =>
@@ -284,7 +286,11 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
                     id={`line-${l.id}`}
                     className={`tline ${l.speakerId === "you" ? "you" : ""} ${flash === l.id ? "flash" : ""}`}
                   >
-                    <Avatar look={p?.look} shirt={p?.color ?? "#ffc531"} size={32} />
+                    <Avatar
+                      look={p?.look ?? (l.speakerId.startsWith("f") ? friendLook(l.speakerId).look : undefined)}
+                      shirt={colorOf(l.speakerId)}
+                      size={32}
+                    />
                     <div>
                       <b>{nameOf(l.speakerId)}</b>
                       <span className="tag">{clock(l.startedAt)}</span>

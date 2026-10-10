@@ -20,7 +20,7 @@ function cleanStats(raw: unknown): Stats {
   const out: Stats = {};
   if (!raw || typeof raw !== "object") return out;
   for (const [k, v] of Object.entries(raw as Record<string, Record<string, unknown>>)) {
-    if (!/^(you|moderator|arjun|priya|kabir|meera|rohan)$/.test(k)) continue;
+    if (!/^(you|moderator|arjun|priya|kabir|meera|rohan|f[1-4])$/.test(k)) continue;
     out[k] = {
       seconds: Math.max(0, Number(v?.seconds) || 0),
       words: Math.max(0, Number(v?.words) || 0),

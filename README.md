@@ -11,6 +11,7 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 **Done**
 
 - Setup: topic list by category (current affairs, business, tech, social, regional, abstract, controversial, case), custom topic, panel size 3 to 5, duration, English or Hinglish, student name
+- Practise with friends: the host taps "Practise with friends" and gets a 4-letter room code and invite link. Friends join from their own phone or laptop (no account needed), AI fills the empty seats, and everyone sits at the same table. When a friend taps Speak, the AI stops and waits, and the panel answers that friend by name. Friends give their closing in the closing round, and each person gets their own report. The host's device runs the AI; friends' devices poll the room about once a second
 - Landing page that explains the product, then log in, sign up or continue as a guest. Accounts are kept on the device (name and email only, password stored as a salted SHA-256 hash), so judges never wait on a server. Each account keeps its own progress
 - Choose your side: argue in favour, against, or decide as you go. When you pick a side, the panel is set up so at least two AI participants take the opposite side and challenge you, and the report checks whether you held your side
 - Live transcription: while you speak, your words appear live in the caption box and as a "speaking now" line in the transcript
@@ -36,7 +37,6 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 - Deploy to Vercel and add the live URL here
 - Test with a real API key on venue Wi-Fi and tune the AI wait time
 - Optional: premium voices (ElevenLabs or OpenAI TTS) for more realistic speech
-- Friends joining the same room with AI filling empty seats needs a real-time server (WebSockets), planned after the hackathon
 
 **Plan**
 
@@ -53,6 +53,7 @@ Browser (Next.js, React)
         │  POST /api/report   (assessment with quote ids)
         │  POST /api/plan     (each AI's position, once per room)
         │  POST /api/feedback (rating and comment)
+        │  /api/room          (shared rooms: create, join, sync, friends' turns)
         ▼
 Next.js API routes (server)
  ├─ input validation and length limits
@@ -84,6 +85,12 @@ Key choices:
 ## Checking the AI connection
 
 Open `/api/status?check=1` (for example http://localhost:3000/api/status?check=1). It makes one tiny AI call and shows `"ok": true`, or the exact error, such as a wrong key or a rate limit. The home screen shows the same warning. With a free Gemini key the app automatically moves to the next Gemini model if one is rate-limited or retired.
+
+## Practise with friends: storage
+
+Locally, rooms are kept in the server's memory, so it works with no setup. Friends on the same Wi-Fi open the "Network" address that `npm run dev` prints (for example http://192.168.1.5:3000) and type the room code. Phones only allow the microphone on https, so on a local network friends type their points; on the deployed https site they can speak.
+
+On Vercel, serverless functions do not share memory, so add a free Upstash Redis database: create one at upstash.com, then add `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` in Vercel's environment variables. Rooms expire after 3 hours.
 
 ## How to run it
 

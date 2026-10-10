@@ -14,6 +14,8 @@ interface Props {
   demo: boolean | null;
   aiError?: string | null;
   onStart: (c: RoomConfig) => void;
+  onFriends: (c: RoomConfig) => void;
+  onJoin: () => void;
   user: User;
   onLogOut: () => void;
 }
@@ -31,7 +33,7 @@ const KINDS: ("All" | "Custom" | Topic["kind"])[] = [
   "Custom",
 ];
 
-export default function Home({ initial, demo, aiError, onStart, user, onLogOut }: Props) {
+export default function Home({ initial, demo, aiError, onStart, onFriends, onJoin, user, onLogOut }: Props) {
   const [kind, setKind] = useState<(typeof KINDS)[number]>("All");
   const [topic, setTopic] = useState(initial?.topic ?? "");
   const [panelSize, setPanelSize] = useState(initial?.panelSize ?? 4);
@@ -62,7 +64,7 @@ export default function Home({ initial, demo, aiError, onStart, user, onLogOut }
     [kind]
   );
 
-  function start(e?: React.FormEvent) {
+  function start(e?: React.FormEvent, withFriends = false) {
     e?.preventDefault();
     const t = topic.trim();
     if (t.length < 2) {
@@ -74,7 +76,9 @@ export default function Home({ initial, demo, aiError, onStart, user, onLogOut }
       localStorage.setItem("gd-name", studentName);
     } catch {}
     const brief = TOPICS.find((x) => x.text === t)?.brief;
-    onStart({ topic: t.slice(0, 160), panelSize, minutes, language, studentName, format, side, brief });
+    const cfg: RoomConfig = { topic: t.slice(0, 160), panelSize, minutes, language, studentName, format, side, brief };
+    if (withFriends) onFriends(cfg);
+    else onStart(cfg);
   }
 
   return (
@@ -256,6 +260,15 @@ export default function Home({ initial, demo, aiError, onStart, user, onLogOut }
                 onChange={(e) => setName(e.target.value)}
               />
             </div>
+          </div>
+
+          <div className="friends-row">
+            <button className="pill ghost" type="button" onClick={() => start(undefined, true)}>
+              Practise with friends
+            </button>
+            <button className="pill ghost" type="button" onClick={onJoin}>
+              Join a friend&apos;s room
+            </button>
           </div>
 
           {error && (

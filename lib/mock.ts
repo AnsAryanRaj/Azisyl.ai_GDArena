@@ -105,8 +105,10 @@ export function mockTurn(req: TurnRequest): TurnResponse {
   const again = turnsSoFar >= mine.points.length ? " Let me say it differently:" : "";
 
   let text: string;
-  if (last?.speakerId === "you") {
+  const friendName = config.friends?.find((f) => f.id === last?.speakerId)?.name;
+  if (last && (last.speakerId === "you" || friendName)) {
     const q = short(last.text);
+    const name = friendName ?? config.studentName;
     text =
       mine.side === "against"
         ? `${name}, you said "${q}", but I disagree.${again} ${cap(point)}.`

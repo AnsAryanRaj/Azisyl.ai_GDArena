@@ -35,6 +35,7 @@ export interface RoomConfig {
   studentName: string;
   format: GdFormat;
   side?: Side; // the side the student chose to argue
+  friends?: { id: string; name: string }[]; // other real people in a shared room (ids f1 to f4)
   brief?: string; // case details, only for case-based GDs
 }
 

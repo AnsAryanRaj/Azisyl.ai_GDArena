@@ -2021,3 +2021,82 @@ select {
   margin: 12px 0 0;
   font-size: 0.9rem;
 }
+
+.friends-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 14px;
+}
+
+/* ---------- lobby ---------- */
+
+.room-code {
+  font-family: var(--serif);
+  font-size: 4.5rem;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  margin: 8px 0 12px;
+}
+
+.link-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.link-row code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8125rem;
+  background: rgba(120, 130, 160, 0.15);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.lobby-h {
+  font-size: 1rem;
+  margin: 0 0 8px;
+}
+
+.lobby-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.lobby-list li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lobby-list li span {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  color: var(--glass-muted);
+  font-weight: 600;
+}
+
+.lobby-list .waiting {
+  color: var(--glass-muted);
+  font-size: 0.9rem;
+}
+
+.lobby .pill.dark {
+  width: 100%;
+}
+
+.code-input {
+  font-size: 1.6rem !important;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  text-align: center;
+}

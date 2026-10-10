@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { MODERATOR, panelFor, personaById } from "@/lib/personas";
+import { friendLook, MODERATOR, panelFor, personaById } from "@/lib/personas";
 import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type AssignedVoice, type ListenError } from "@/lib/speech";
 import type { Line, Plan, RoomConfig, TurnResponse } from "@/lib/types";
 import Avatar from "./Avatar";
@@ -14,6 +14,7 @@ interface Props {
   config: RoomConfig;
   onDone: (lines: Line[]) => void;
   onLeave: () => void;
+  shared?: { code: string; hostKey: string }; // set when friends are in this room
 }
 
 // After this many AI lines in a row, the next speaker asks the student directly.
@@ -26,8 +27,9 @@ const fmt = (s: number) => {
   return `${Math.floor(v / 60)}:${String(v % 60).padStart(2, "0")}`;
 };
 
-export default function Room({ config, onDone, onLeave }: Props) {
+export default function Room({ config, onDone, onLeave, shared }: Props) {
   const panel = panelFor(config.panelSize);
+  const friends = config.friends ?? [];
   const hinglish = config.language === "hinglish";
 
   /* ---------- render state ---------- */
@@ -123,7 +125,8 @@ export default function Room({ config, onDone, onLeave }: Props) {
   // How the moderator addresses the student when they did not type a name.
   const named = config.studentName.trim().toLowerCase() !== "you";
   const call = named ? `${config.studentName}, ` : "";
-  const nameOf = (id: string) => (id === "you" ? config.studentName : personaById(id)?.name ?? id);
+  const nameOf = (id: string) =>
+    id === "you" ? config.studentName : friends.find((f) => f.id === id)?.name ?? personaById(id)?.name ?? id;
 
   /* ---------- talking to the server ---------- */
 
@@ -207,6 +210,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const scheduleNext = (delayMs = settingsRef.current.patience * 1000) => {
     clearNext();
     if (phaseRef.current !== "discussion" || talkingRef.current || busyRef.current || !onlineRef.current) return;
+    if (friendTalkingRef.current.size > 0) return; // a friend has the floor
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null;
       runTurn();
@@ -217,6 +221,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
 
   const runTurn = async () => {
     if (!mountedRef.current || phaseRef.current !== "discussion" || talkingRef.current || busyRef.current) return;
+    if (friendTalkingRef.current.size > 0) return;
     if (timeUp()) return startClosing(false);
     if (awaitingAnswerRef.current) {
       // The student let a direct question pass.
@@ -291,7 +296,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
 
   const intro = async () => {
     const gen = genRef.current;
-    const names = panel.map((p) => p.name).join(", ");
+    const names = [...panel.map((p) => p.name), ...friends.map((f) => f.name)].join(", ");
     const dot = (t: string) => (/[.?!]$/.test(t) ? t : `${t}.`);
     const topic = dot(config.topic.replace(/^case:\s*/i, ""));
     const f = config.format;
@@ -373,6 +378,16 @@ export default function Room({ config, onDone, onLeave }: Props) {
       if (gen !== genRef.current) return;
       await aiSpeak(p.id, text);
     }
+    // Friends give their closing too. Wait up to 30 seconds for each one.
+    for (const f of friends) {
+      if (gen !== genRef.current || !mountedRef.current) return;
+      await aiSpeak(MODERATOR.id, hinglish ? `${f.name}, aapka conclusion?` : `${f.name}, your conclusion, please.`);
+      await new Promise<void>((resolve) => {
+        friendClosingRef.current = { id: f.id, done: resolve };
+        setTimeout(resolve, 30000);
+      });
+      friendClosingRef.current = null;
+    }
     if (gen !== genRef.current) return;
     await aiSpeak(
       MODERATOR.id,
@@ -399,8 +414,99 @@ export default function Room({ config, onDone, onLeave }: Props) {
     stopSpeaking();
     await aiSpeak(MODERATOR.id, hinglish ? "Thank you everyone. Discussion yahin khatam hota hai." : "Thank you, everyone. That ends the discussion.");
     setPhase("done");
+    await syncNow(true);
     onDone(linesRef.current);
   };
+
+  /* ---------- friends in a shared room ---------- */
+
+  const friendTalkingRef = useRef<Set<string>>(new Set());
+  const friendClosingRef = useRef<{ id: string; done: () => void } | null>(null);
+  const liveRef = useRef({ speakingId: null as string | null, thinking: false, secondsLeft: 0 });
+  liveRef.current = { speakingId, thinking, secondsLeft };
+
+  const handleFriendEvent = (ev: { type: string; friendId: string; on?: boolean; text?: string; ms?: number; typed?: boolean }) => {
+    const f = friends.find((x) => x.id === ev.friendId);
+    if (!f) return;
+    if (phaseRef.current === "closing" || phaseRef.current === "done") {
+      // Closing round runs in order; do not interrupt it, just record what friends say.
+      if (ev.type === "talk" && ev.on) {
+        setSpeakingId(f.id);
+        setCaption({ who: f.name, text: "Speaking…" });
+      }
+      if (ev.type === "say" && ev.text && phaseRef.current === "closing") {
+        addLine(f.id, ev.text, { durationMs: ev.ms || estimateMs(ev.text), typed: ev.typed || undefined });
+        setCaption({ who: f.name, text: ev.text });
+        if (friendClosingRef.current?.id === f.id) friendClosingRef.current.done();
+      }
+      return;
+    }
+    if (ev.type === "talk") {
+      if (ev.on) {
+        // A friend started talking: everyone else stops, like a real table.
+        friendTalkingRef.current.add(f.id);
+        genRef.current += 1;
+        clearNext();
+        prefetchRef.current = null;
+        stopSpeaking();
+        setSpeakingId(f.id);
+        setCaption({ who: f.name, text: "Speaking…" });
+      } else {
+        friendTalkingRef.current.delete(f.id);
+        if (!friendTalkingRef.current.size && phaseRef.current === "discussion") scheduleNext();
+      }
+      return;
+    }
+    if (ev.type === "say" && ev.text) {
+      friendTalkingRef.current.delete(f.id);
+      genRef.current += 1;
+      clearNext();
+      prefetchRef.current = null;
+      stopSpeaking();
+      if (phaseRef.current === "intro") beginDiscussion(false);
+      addLine(f.id, ev.text, { durationMs: ev.ms || estimateMs(ev.text), typed: ev.typed || undefined });
+      setSpeakingId(null);
+      setCaption({ who: f.name, text: ev.text });
+      aiStreakRef.current = 0;
+      if (friendClosingRef.current?.id === f.id) friendClosingRef.current.done();
+      if (phaseRef.current === "discussion") {
+        if (timeUp()) return void startClosing(false);
+        scheduleNext();
+      }
+    }
+  };
+
+  const syncingRef = useRef(false);
+  const syncNow = async (ended = false) => {
+    if (!shared || (syncingRef.current && !ended)) return;
+    syncingRef.current = true;
+    try {
+      const res = await fetch(`/api/room/${shared.code}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sync",
+          hostKey: shared.hostKey,
+          lines: linesRef.current,
+          state: { phase: phaseRef.current, ...liveRef.current },
+          ended,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      for (const ev of data.events ?? []) handleFriendEvent(ev);
+    } catch {
+      // Network blip: the next sync will catch up.
+    } finally {
+      syncingRef.current = false;
+    }
+  };
+
+  useEffect(() => {
+    if (!shared) return;
+    const t = setInterval(() => syncNow(), 800);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shared?.code]);
 
   /* ---------- the student ---------- */
 
@@ -696,6 +802,7 @@ export default function Room({ config, onDone, onLeave }: Props) {
           </div>
 
           <Table
+            humans={friends}
             panel={panel}
             studentName={config.studentName}
             speakingId={speakingId}
@@ -809,7 +916,11 @@ export default function Room({ config, onDone, onLeave }: Props) {
               const p = personaById(l.speakerId);
               return (
                 <li key={l.id} className={`tline ${l.speakerId === "you" ? "you" : ""}`}>
-                  <Avatar look={p?.look} shirt={p?.color ?? "#ffc531"} size={32} />
+                  <Avatar
+                    look={p?.look ?? (l.speakerId.startsWith("f") ? friendLook(l.speakerId).look : undefined)}
+                    shirt={p?.color ?? (l.speakerId.startsWith("f") ? friendLook(l.speakerId).color : "#ffc531")}
+                    size={32}
+                  />
                   <div>
                     <b>{nameOf(l.speakerId)}</b>
                     {l.interrupted && <span className="tag">cut off</span>}
