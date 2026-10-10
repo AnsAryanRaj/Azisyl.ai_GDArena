@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { MODERATOR, panelFor, personaById } from "@/lib/personas";
-import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type ListenError } from "@/lib/speech";
+import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type AssignedVoice, type ListenError } from "@/lib/speech";
 import type { Line, RoomConfig, TurnResponse } from "@/lib/types";
 import Avatar from "./Avatar";
 import { LogoMark, MicIcon, StopIcon } from "./Icons";
@@ -43,6 +43,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const [patience, setPatience] = useState(1.2);
   const [voiceOn, setVoiceOn] = useState(true);
   const [fallbackUsed, setFallbackUsed] = useState(false);
+  const [watchLeft, setWatchLeft] = useState(0);
+  const fishbowl = config.format === "fishbowl";
+  const watchMs = Math.round(Math.min(90, Math.max(45, config.minutes * 60 * 0.3)) * 1000);
+  const watching = watchLeft > 0;
 
   /* ---------- engine refs (the async loop reads these, never stale state) ---------- */
   const linesRef = useRef<Line[]>([]);
@@ -58,11 +62,13 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const failuresRef = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const voicesRef = useRef<Map<string, SpeechSynthesisVoice | null>>(new Map());
+  const voicesRef = useRef<Map<string, AssignedVoice>>(new Map());
   const listenerRef = useRef<Listener | null>(null);
   const prefetchRef = useRef<{ key: number; gen: number; promise: Promise<TurnResponse | null> } | null>(null);
   const settingsRef = useRef({ patience: 1.2, voiceOn: true });
   const awaitingClosingRef = useRef(false);
+  const watchUntilRef = useRef(0); // fishbowl: student watches until this time
+  const inviteDueRef = useRef(false);
   const mountedRef = useRef(true);
   const listRef = useRef<HTMLOListElement>(null);
   const typeInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +108,9 @@ export default function Room({ config, onDone, onLeave }: Props) {
     setLines(linesRef.current);
   };
 
+  // How the moderator addresses the student when they did not type a name.
+  const named = config.studentName.trim().toLowerCase() !== "you";
+  const call = named ? `${config.studentName}, ` : "";
   const nameOf = (id: string) => (id === "you" ? config.studentName : personaById(id)?.name ?? id);
 
   /* ---------- talking to the server ---------- */
@@ -113,7 +122,10 @@ export default function Room({ config, onDone, onLeave }: Props) {
       forceSpeaker,
       transcript: linesRef.current.map(({ id, speakerId, text }) => ({ id, speakerId, text })),
       secondsLeft: config.minutes * 60 - elapsed() / 1000,
-      secondsSinceStudentSpoke: (performance.now() - (lastYouRef.current || startRef.current || performance.now())) / 1000,
+      secondsSinceStudentSpoke:
+        performance.now() < watchUntilRef.current
+          ? 0
+          : (performance.now() - (lastYouRef.current || watchUntilRef.current || startRef.current || performance.now())) / 1000,
     });
     let lastErr: unknown;
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -185,15 +197,29 @@ export default function Room({ config, onDone, onLeave }: Props) {
     const gen = genRef.current;
     setThinking(true);
     try {
-      let turn: TurnResponse | null = null;
-      const pf = prefetchRef.current;
-      if (pf && pf.key === linesRef.current.length && pf.gen === gen) turn = await pf.promise;
-      prefetchRef.current = null;
-      if (!turn) turn = await requestTurn();
-      if (gen !== genRef.current || talkingRef.current || phaseRef.current !== "discussion") return;
-      failuresRef.current = 0;
-      setAiError(false);
-      await aiSpeak(turn.speakerId, turn.text);
+      if (inviteDueRef.current) {
+        // Fishbowl: watching time is over, the moderator brings the student in.
+        inviteDueRef.current = false;
+        prefetchRef.current = null;
+        await aiSpeak(
+          MODERATOR.id,
+          hinglish
+            ? `Thank you. ${call}aapne sab suna. Ab aap discussion join kijiye. Aap kya sochte hain?`
+            : `Thank you. ${named ? call + "you" : "You"} have been listening to all of this. Please join in now. What is your view?`
+        );
+        lastYouRef.current = performance.now();
+        showToast("Your turn. Tap Speak to join the discussion.", 5000);
+      } else {
+        let turn: TurnResponse | null = null;
+        const pf = prefetchRef.current;
+        if (pf && pf.key === linesRef.current.length && pf.gen === gen) turn = await pf.promise;
+        prefetchRef.current = null;
+        if (!turn) turn = await requestTurn();
+        if (gen !== genRef.current || talkingRef.current || phaseRef.current !== "discussion") return;
+        failuresRef.current = 0;
+        setAiError(false);
+        await aiSpeak(turn.speakerId, turn.text);
+      }
     } catch {
       failuresRef.current += 1;
       if (failuresRef.current >= 2) setAiError(true);
@@ -212,12 +238,43 @@ export default function Room({ config, onDone, onLeave }: Props) {
   const intro = async () => {
     const gen = genRef.current;
     const names = panel.map((p) => p.name).join(", ");
-    const topic = /[.?!]$/.test(config.topic) ? config.topic : `${config.topic}.`;
+    const dot = (t: string) => (/[.?!]$/.test(t) ? t : `${t}.`);
+    const topic = dot(config.topic.replace(/^case:\s*/i, ""));
+    const f = config.format;
+    const what =
+      f === "case" && config.brief
+        ? hinglish
+          ? `Aaj ka case hai: ${dot(config.brief)}`
+          : `Today's case is this. ${dot(config.brief)}`
+        : hinglish
+          ? `Aaj ka topic hai: ${topic}`
+          : `Today's topic is: ${topic}`;
+    const extra =
+      f === "controversial"
+        ? hinglish
+          ? " Ye topic sensitive hai, isliye ideas se disagree kijiye, logon se nahi."
+          : " This topic can get heated, so please disagree with ideas, not people."
+        : "";
+    const ending =
+      f === "fishbowl"
+        ? hinglish
+          ? `${named ? call + "ye" : "Ye"} fishbowl hai. Pehle aap suniye, main thodi der mein aapko bulaungi. ${panel[0].name}, aap shuru kijiye.`
+          : `${named ? call : "To our candidate: "}this is a fishbowl, so please listen first. I will bring you in shortly. ${panel[0].name}, please begin.`
+        : hinglish
+          ? `Panel mein hain ${names}, aur ${named ? config.studentName : "aap"}. Kaun shuru karega?`
+          : `With us are ${names}, and ${named ? config.studentName : "you"}. Who would like to start?`;
     const text = hinglish
-      ? `Hello everyone, main ${MODERATOR.name} hoon, aaj ki moderator. Aaj ka topic hai: ${topic} Aapke paas ${config.minutes} minute hain. Panel mein hain ${names}, aur ${config.studentName}. Kaun shuru karega?`
-      : `Good morning everyone, I am ${MODERATOR.name}, your moderator. Today's topic is: ${topic} You have ${config.minutes} minutes. With us are ${names}, and ${config.studentName}. Who would like to start?`;
+      ? `Hello everyone, main ${MODERATOR.name} hoon, aaj ki moderator. ${what} Aapke paas ${config.minutes} minute hain.${extra} ${ending}`
+      : `Good morning everyone, I am ${MODERATOR.name}, your moderator. ${what} You have ${config.minutes} minutes.${extra} ${ending}`;
     await aiSpeak(MODERATOR.id, text);
     if (gen !== genRef.current || phaseRef.current !== "intro") return; // student already jumped in
+    if (fishbowl) {
+      beginDiscussion(false);
+      watchUntilRef.current = performance.now() + watchMs;
+      setWatchLeft(watchMs / 1000);
+      scheduleNext(900);
+      return;
+    }
     beginDiscussion(true);
   };
 
@@ -266,8 +323,8 @@ export default function Room({ config, onDone, onLeave }: Props) {
     await aiSpeak(
       MODERATOR.id,
       hinglish
-        ? `${config.studentName}, last word aapka. Apna conclusion boliye.`
-        : `${config.studentName}, you have the last word. Your conclusion, please.`
+        ? `${call}last word aapka. Apna conclusion boliye.`
+        : `${named ? call + "you" : "You"} have the last word. Your conclusion, please.`
     );
     awaitingClosingRef.current = true;
     setAwaitingClosing(true);
@@ -314,7 +371,9 @@ export default function Room({ config, onDone, onLeave }: Props) {
   };
 
   const canTalk = () =>
-    phaseRef.current === "intro" || phaseRef.current === "discussion" || awaitingClosingRef.current;
+    (phaseRef.current === "intro" && !fishbowl) ||
+    (phaseRef.current === "discussion" && performance.now() >= watchUntilRef.current) ||
+    awaitingClosingRef.current;
 
   const startTalking = () => {
     if (talkingRef.current || !canTalk()) return;
@@ -411,6 +470,17 @@ export default function Room({ config, onDone, onLeave }: Props) {
 
     const tick = setInterval(() => {
       if (phaseRef.current !== "discussion") return;
+      if (watchUntilRef.current) {
+        const w = (watchUntilRef.current - performance.now()) / 1000;
+        if (w > 0) {
+          setWatchLeft(w);
+          return; // no nudges while the student is watching
+        }
+        watchUntilRef.current = 0; // watching is over
+        setWatchLeft(0);
+        inviteDueRef.current = true;
+        if (!busyRef.current && !talkingRef.current) scheduleNext(300);
+      }
       const left = config.minutes * 60 - elapsed() / 1000;
       setSecondsLeft(left);
       if (left <= 0 && !busyRef.current && !talkingRef.current) startClosing(false);
@@ -458,8 +528,9 @@ export default function Room({ config, onDone, onLeave }: Props) {
   /* ---------- view ---------- */
 
   const phaseLabel =
-    phase === "intro" ? "Moderator is opening" : phase === "discussion" ? "Discussion live" : phase === "closing" ? "Closing round" : "Finished";
-  const talkDisabled = !(phase === "intro" || phase === "discussion" || awaitingClosing) || !online;
+    phase === "intro" ? "Moderator is opening" : phase === "discussion" ? (watching ? "Fishbowl: watch and listen" : "Discussion live") : phase === "closing" ? "Closing round" : "Finished";
+  const talkDisabled =
+    !((phase === "intro" && !fishbowl) || phase === "discussion" || awaitingClosing) || !online || watching;
   const micMessage: Record<Exclude<MicState, "ok">, string> = {
     denied: "Microphone is blocked. Allow it from the icon in the address bar, or type your points below.",
     nomic: "No microphone found. Plug one in, or type your points below.",
@@ -545,7 +616,13 @@ export default function Room({ config, onDone, onLeave }: Props) {
 
           <div className="controls">
             <button className="talk" aria-pressed={talking} onClick={toggleTalk} disabled={talkDisabled} aria-describedby="talk-hint">
-              {talking ? "Done speaking" : awaitingClosing ? "Give your closing" : "Speak"}
+              {talking
+                ? "Done speaking"
+                : watching
+                  ? `Watching, you join in ${fmt(watchLeft)}`
+                  : awaitingClosing
+                    ? "Give your closing"
+                    : "Speak"}
               <span className="icon-disc">{talking ? <StopIcon /> : <MicIcon />}</span>
             </button>
             {phase === "discussion" && (

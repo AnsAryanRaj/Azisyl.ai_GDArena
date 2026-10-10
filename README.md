@@ -10,15 +10,17 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 
 **Done**
 
-- Setup: topic list by category (current affairs, business, tech, social, abstract), custom topic, panel size 3 to 5, duration, English or Hinglish, student name
-- Live spoken discussion: push-to-talk speech recognition with live captions, AI participants speak out loud with different voices, pitch and speed
+- Setup: topic list by category (current affairs, business, tech, social, regional, abstract, controversial, case), custom topic, panel size 3 to 5, duration, English or Hinglish, student name
+- Four GD formats: standard, case-based (the moderator reads out a business case), controversial (sharper disagreement, moderator keeps it respectful) and fishbowl (the student watches the AI panel first, then the moderator brings them in)
+- Live spoken discussion: push-to-talk speech recognition with live captions, AI participants speak out loud with different voices, pitch and speed. Voices match each participant's gender (female voices for Ms. Rao, Priya and Meera, male voices for Arjun, Kabir and Rohan), with a pitch fallback on devices that only have one kind of voice
 - Five personalities plus a moderator: the dominator, the data-driven one, the quiet one, the one who drifts, the consensus builder
 - Natural turn-taking: AI waits for a pause (adjustable), never talks over another AI, and stops the moment the student starts speaking (barge-in). AI participants reply to each other by name
 - Structure: moderator intro, timer, "End discussion", closing round where every AI concludes, then the student gives the last word
 - Report: speaking share per person, six scored skills (starting, ideas, building on others, listening, handling interruptions, ending), each with a verdict, a tip and a clickable transcript quote. "What you could have said" shows one missed opening
 - Silent nudge if the student has not spoken for 2 minutes. The moderator invites the student by name after 90 seconds of silence
 - Error handling: mic denied or missing, browsers without speech support, offline, failed or slow AI calls (falls back to scripted lines so the room never freezes), bad input to the API
-- Progress over time: past session scores saved on the device
+- Progress over time: average score per skill across sessions, strongest skill, skill to work on next, speaking-share habit, how often the student opened the discussion, and "up or down from last time" on each report. Stored only on the device
+- Feedback: students rate each session (1 to 5 stars plus a comment) on the report, or any time from "Give feedback" in the menu. Sent to `/api/feedback` and shown in the server logs
 - Demo mode: runs without any API key using scripted replies
 
 **Left**
@@ -26,6 +28,7 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 - Deploy to Vercel and add the live URL here
 - Test with a real API key on venue Wi-Fi and tune the AI wait time
 - Optional: premium voices (ElevenLabs or OpenAI TTS) for more realistic speech
+- Friends joining the same room with AI filling empty seats needs a real-time server (WebSockets), planned after the hackathon
 
 **Plan**
 
@@ -40,6 +43,7 @@ Browser (Next.js, React)
  └─ Room engine     → phases, timer, barge-in, prefetching the next turn
         │  POST /api/turn     (who speaks next + what they say)
         │  POST /api/report   (assessment with quote ids)
+        │  POST /api/feedback (rating and comment)
         ▼
 Next.js API routes (server)
  ├─ input validation and length limits
@@ -60,6 +64,9 @@ Key choices:
 ## What we added
 
 - **Hinglish room:** AI participants speak a natural Hindi-English mix, the way students actually talk.
+- **GD formats:** case-based, controversial and fishbowl rooms, plus regional topics.
+- **Progress over time:** skill averages and habits across sessions.
+- **Feedback button:** students can rate a session and tell us what to improve.
 - **"What you could have said":** one missed moment from the discussion with a sample line.
 - **Adjustable patience:** the student chooses how long the AI waits before speaking (also an accessibility feature).
 - **Captions-only mode:** turn AI voices off and follow the live captions.

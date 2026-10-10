@@ -1,17 +1,13 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { readHistory, summarise, type HistoryItem } from "@/lib/progress";
 import { MODERATOR, PANEL } from "@/lib/personas";
-import { TOPICS, type Topic } from "@/lib/topics";
-import type { Language, RoomConfig } from "@/lib/types";
+import { FORMATS, TOPICS, type Topic } from "@/lib/topics";
+import type { GdFormat, Language, RoomConfig } from "@/lib/types";
 import Avatar from "./Avatar";
+import Feedback from "./Feedback";
 import { LogoMark, MicIcon, SparkIcon } from "./Icons";
 
-export interface HistoryItem {
-  date: string;
-  topic: string;
-  overall: number;
-  youSeconds: number;
-}
 
 interface Props {
   initial?: RoomConfig | null;
@@ -19,7 +15,7 @@ interface Props {
   onStart: (c: RoomConfig) => void;
 }
 
-const KINDS: ("All" | Topic["kind"])[] = ["All", "Current affairs", "Business", "Tech", "Social", "Abstract"];
+const KINDS: ("All" | Topic["kind"])[] = ["All", "Current affairs", "Business", "Tech", "Social", "Regional", "Abstract", "Controversial", "Case"];
 
 export default function Home({ initial, demo, onStart }: Props) {
   const [kind, setKind] = useState<(typeof KINDS)[number]>("All");
@@ -28,12 +24,19 @@ export default function Home({ initial, demo, onStart }: Props) {
   const [minutes, setMinutes] = useState(initial?.minutes ?? 5);
   const [language, setLanguage] = useState<Language>(initial?.language ?? "english");
   const [name, setName] = useState(initial?.studentName ?? "");
+  const [format, setFormat] = useState<GdFormat>(initial?.format ?? "standard");
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [error, setError] = useState("");
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const [fbKey, setFbKey] = useState(0);
+  const openFeedback = () => {
+    setFbKey((k) => k + 1);
+    dialogRef.current?.showModal();
+  };
 
   useEffect(() => {
     try {
-      setHistory(JSON.parse(localStorage.getItem("gd-history") || "[]"));
+      setHistory(readHistory());
       const saved = localStorage.getItem("gd-name");
       if (saved && !initial?.studentName) setName(saved);
     } catch {}
@@ -55,7 +58,8 @@ export default function Home({ initial, demo, onStart }: Props) {
     try {
       localStorage.setItem("gd-name", studentName);
     } catch {}
-    onStart({ topic: t.slice(0, 160), panelSize, minutes, language, studentName });
+    const brief = TOPICS.find((x) => x.text === t)?.brief;
+    onStart({ topic: t.slice(0, 160), panelSize, minutes, language, studentName, format, brief });
   }
 
   return (
@@ -73,7 +77,10 @@ export default function Home({ initial, demo, onStart }: Props) {
           <div className="navlinks">
             <a href="#how">How it works</a>
             <a href="#panel">The panel</a>
-            <a href="#feedback">Feedback</a>
+            <a href="#feedback">Sample report</a>
+            <button type="button" onClick={openFeedback}>
+              Give feedback
+            </button>
           </div>
           <div className="nav-right">
             <button className="pill dark" type="button" onClick={() => start()}>
@@ -132,6 +139,8 @@ export default function Home({ initial, demo, onStart }: Props) {
                   onClick={() => {
                     setTopic(t.text);
                     setError("");
+                    if (t.kind === "Case") setFormat("case");
+                    else if (format === "case") setFormat("standard");
                   }}
                 >
                   {t.text}
@@ -141,6 +150,30 @@ export default function Home({ initial, demo, onStart }: Props) {
           </ul>
 
           <div className="quick">
+            <div className="qgroup glass" role="group" aria-label="GD format">
+              <span>Format</span>
+              {FORMATS.map((f) => (
+                <button
+                  type="button"
+                  key={f.id}
+                  title={f.hint}
+                  aria-pressed={format === f.id}
+                  onClick={() => {
+                    setFormat(f.id);
+                    if (f.id === "case" || f.id === "controversial") {
+                      const k = f.id === "case" ? "Case" : "Controversial";
+                      setKind(k);
+                      if (!TOPICS.some((x) => x.text === topic && x.kind === k)) {
+                        setTopic(TOPICS.find((x) => x.kind === k)!.text);
+                        setError("");
+                      }
+                    }
+                  }}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
             <div className="qgroup glass" role="group" aria-label="Number of AI participants">
               <span>AI panel</span>
               {[3, 4, 5].map((n) => (
@@ -267,24 +300,84 @@ export default function Home({ initial, demo, onStart }: Props) {
         </div>
       </section>
 
-      {history.length > 0 && (
-        <section className="section" aria-label="Your past sessions">
-          <h2>Your progress</h2>
-          <ol className="steps plain">
-            {history.slice(0, 3).map((h, i) => (
+      {history.length > 0 && <Progress history={history} />}
+
+      <footer className="footer">
+        GD Arena is a practice tool. The other participants and the assessor are AI, and their views are generated.{" "}
+        <button className="linkish" type="button" onClick={openFeedback} style={{ color: "inherit" }}>
+          Send us feedback
+        </button>
+      </footer>
+
+      <dialog ref={dialogRef} className="fb-dialog" aria-labelledby="fb-title" onClick={(e) => e.target === dialogRef.current && dialogRef.current?.close()}>
+        <div>
+          <button className="pill plain close" type="button" onClick={() => dialogRef.current?.close()}>
+            Close
+          </button>
+          <h2 id="fb-title">Give feedback</h2>
+          <p style={{ margin: "0 0 14px", color: "var(--glass-muted)" }}>Tell us what works and what does not. It goes straight to the team.</p>
+          <Feedback key={fbKey} where="home" onDone={() => dialogRef.current?.close()} />
+        </div>
+      </dialog>
+    </>
+  );
+}
+
+function Progress({ history }: { history: HistoryItem[] }) {
+  const s = summarise(history);
+  const pips = (v: number) => (
+    <span className="pips" aria-label={`${v.toFixed(1)} out of 5`}>
+      {[1, 2, 3, 4, 5].map((n) => (
+        <i key={n} className={n <= Math.round(v) ? "on" : ""} />
+      ))}
+    </span>
+  );
+  return (
+    <section className="section" aria-labelledby="progress-title">
+      <h2 id="progress-title">Your progress</h2>
+      <p className="lead">
+        {s.sessions} {s.sessions === 1 ? "session" : "sessions"} so far, average score {s.avgOverall.toFixed(1)} out of 10
+        {s.sessions >= 2 && s.trend !== 0 ? `, ${s.trend > 0 ? "up" : "down"} ${Math.abs(s.trend)} since your first one` : ""}.
+        Saved only on this device.
+      </p>
+      <div className="progress">
+        <div className="panel">
+          <h3>Skills across sessions</h3>
+          {s.skills.length === 0 && <p className="fine">Finish a discussion to see your skills here.</p>}
+          {s.skills.map((k) => (
+            <div className="skill-row" key={k.area}>
+              <span>{k.area}</span>
+              {pips(k.avg)}
+            </div>
+          ))}
+        </div>
+        <div className="panel">
+          <h3>Your habits</h3>
+          <ul className="habits">
+            {s.strongest && <li>Strongest skill: {s.strongest.area.toLowerCase()}.</li>}
+            {s.weakest && s.weakest !== s.strongest && <li>Work on next: {s.weakest.area.toLowerCase()}.</li>}
+            {s.avgShare !== null && (
+              <li>
+                You speak for about {Math.round(s.avgShare)}% of the time.{" "}
+                {s.avgShare < 15 ? "Try to take more turns." : s.avgShare > 35 ? "Leave more room for others." : "That is a healthy share."}
+              </li>
+            )}
+            {s.openedOf > 0 && (
+              <li>
+                You opened the discussion in {s.openedCount} of {s.openedOf} sessions.
+              </li>
+            )}
+          </ul>
+          <ol className="recent">
+            {history.slice(0, 4).map((h, i) => (
               <li key={i}>
-                <h3>{h.overall}/10</h3>
-                <p>{h.topic}</p>
-                <p>You spoke for {Math.round(h.youSeconds)} seconds</p>
+                <span>{h.topic}</span>
+                <span>{h.overall}/10</span>
               </li>
             ))}
           </ol>
-        </section>
-      )}
-
-      <footer className="footer">
-        GD Arena is a practice tool. The other participants and the assessor are AI, and their views are generated.
-      </footer>
-    </>
+        </div>
+      </div>
+    </section>
   );
 }

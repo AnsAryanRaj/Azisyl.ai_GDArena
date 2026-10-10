@@ -23,6 +23,19 @@ function languageRule(config: RoomConfig) {
     : "Speak in clear, simple Indian English.";
 }
 
+export function formatRule(config: RoomConfig) {
+  switch (config.format) {
+    case "case":
+      return `This is a case-based GD. The case: ${config.brief ?? config.topic}. Participants analyse the problem, propose concrete options, weigh trade-offs with numbers where useful, and push towards a recommendation.`;
+    case "controversial":
+      return "This is a controversial-topic GD. Participants take clear, opposing sides and disagree sharply but stay respectful and avoid personal attacks or hateful remarks. The moderator steps in if anyone gets personal.";
+    case "fishbowl":
+      return `This is a fishbowl GD: ${config.studentName} first watches silently, then joins. While the human is watching, the AI participants debate among themselves and do not address the human.`;
+    default:
+      return "This is a standard topic GD.";
+  }
+}
+
 export function turnMessages(req: TurnRequest): ChatMessage[] {
   const { config } = req;
   const panel = panelFor(config.panelSize);
@@ -38,6 +51,8 @@ AI participants:
 ${roster}
 - id "moderator": ${MODERATOR.name}. ${MODERATOR.style}
 
+${formatRule(config)}
+
 Your job: choose who speaks next and write exactly what they say out loud.
 
 Rules:
@@ -52,7 +67,7 @@ Rules:
 
 Reply with JSON only: {"speaker": "<id>", "text": "<what they say>"}`;
 
-  let task = `Topic: "${config.topic}"
+  let task = `Topic: "${config.topic}"${config.brief ? `\nCase details: ${config.brief}` : ""}
 Time left: about ${Math.max(0, Math.round(req.secondsLeft))} seconds.
 Seconds since ${config.studentName} last spoke: ${Math.round(req.secondsSinceStudentSpoke)}.
 
@@ -85,6 +100,7 @@ export function reportMessages(config: RoomConfig, transcript: TLine[], stats: S
 
   const system = `You are a strict but kind placement GD assessor at an Indian campus.
 Assess ONLY the human candidate, ${config.studentName}, whose lines are marked "(the human candidate)".
+${formatRule(config)}${config.format === "fishbowl" ? " In a fishbowl, give extra weight to how well they used what they heard while watching. Do not mark them down for not starting the discussion." : ""}
 Be honest and specific. If they barely spoke, say so plainly. Do not praise things that did not happen.
 
 Score these six areas from 1 (poor) to 5 (excellent), in this order:
@@ -105,7 +121,7 @@ Also give "overall" (1 to 10), "summary" (two plain sentences), and "missedOpeni
 Write in simple everyday English. Reply with JSON only:
 {"summary": "", "overall": 0, "points": [{"area": "", "score": 0, "verdict": "", "tip": "", "quoteIds": [""]}], "missedOpening": {"afterLineId": "", "youCouldHaveSaid": ""}}`;
 
-  const user = `Topic: "${config.topic}"
+  const user = `Topic: "${config.topic}"${config.brief ? `\nCase details: ${config.brief}` : ""}
 
 Speaking stats:
 ${statLines}

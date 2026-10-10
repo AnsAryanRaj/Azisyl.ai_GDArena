@@ -1,5 +1,7 @@
 export type Language = "english" | "hinglish";
 
+export type GdFormat = "standard" | "case" | "controversial" | "fishbowl";
+
 export type Phase = "setup" | "intro" | "discussion" | "closing" | "report";
 
 export interface Persona {
@@ -9,6 +11,7 @@ export interface Persona {
   style: string; // instructions for the model
   voice: { pitch: number; rate: number; prefer: string[] };
   color: string;
+  gender: "f" | "m";
   look: { skin: string; hair: string; style: "short" | "long" | "bun" | "curly" | "pony"; glasses?: boolean };
 }
 
@@ -28,6 +31,8 @@ export interface RoomConfig {
   minutes: number;
   language: Language;
   studentName: string;
+  format: GdFormat;
+  brief?: string; // case details, only for case-based GDs
 }
 
 export interface TurnRequest {

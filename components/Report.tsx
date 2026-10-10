@@ -3,7 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { MODERATOR, panelFor, personaById } from "@/lib/personas";
 import { speakingStats } from "@/lib/stats";
 import type { Line, Report as ReportData, RoomConfig } from "@/lib/types";
+import { addHistory, readHistory } from "@/lib/progress";
 import Avatar from "./Avatar";
+import Feedback from "./Feedback";
 import { LogoMark, MicIcon } from "./Icons";
 
 interface Props {
@@ -22,6 +24,7 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
   const [data, setData] = useState<ReportData | null>(null);
   const [error, setError] = useState("");
   const [flash, setFlash] = useState<string | null>(null);
+  const [prevOverall, setPrevOverall] = useState<number | null>(null);
   const saved = useRef(false);
   const stats = speakingStats(lines);
   const people = ["you", ...panelFor(config.panelSize).map((p) => p.id), MODERATOR.id];
@@ -44,11 +47,21 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
       setData(r);
       if (!saved.current) {
         saved.current = true;
-        try {
-          const prev = JSON.parse(localStorage.getItem("gd-history") || "[]");
-          const item = { date: new Date().toISOString(), topic: config.topic, overall: r.overall, youSeconds: stats.you?.seconds ?? 0 };
-          localStorage.setItem("gd-history", JSON.stringify([item, ...prev].slice(0, 20)));
-        } catch {}
+        const before = readHistory();
+        setPrevOverall(before[0]?.overall ?? null);
+        const total = Object.values(stats).reduce((a, x) => a + x.seconds, 0) || 1;
+        const firstSpeaker = lines.find((l) => l.speakerId !== "moderator")?.speakerId;
+        addHistory({
+          date: new Date().toISOString(),
+          topic: config.topic,
+          format: config.format,
+          overall: r.overall,
+          youSeconds: stats.you?.seconds ?? 0,
+          youShare: Math.round(((stats.you?.seconds ?? 0) / total) * 100),
+          turns: stats.you?.turns ?? 0,
+          spokeFirst: firstSpeaker === "you",
+          points: r.points.map((p) => ({ area: p.area, score: p.score })),
+        });
       }
     } catch {
       setError("The report could not be generated. Check your connection and try again.");
@@ -122,7 +135,18 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
               </div>
             </div>
             <div>
-              <h1>Your GD report</h1>
+              <h1>
+                Your GD report
+                {prevOverall !== null && (
+                  <span className="delta" style={{ fontFamily: "var(--sans)" }}>
+                    {data.overall > prevOverall
+                      ? `Up ${data.overall - prevOverall} from last time`
+                      : data.overall < prevOverall
+                        ? `Down ${prevOverall - data.overall} from last time`
+                        : "Same as last time"}
+                  </span>
+                )}
+              </h1>
               <p style={{ fontWeight: 600, marginBottom: 6 }}>{config.topic}</p>
               <p>{data.summary}</p>
               {data.demo && <p className="demo-note">Demo report. Add an AI key for a full assessment.</p>}
@@ -210,6 +234,11 @@ export default function Report({ config, lines, onAgain, onHome }: Props) {
                 );
               })}
             </ol>
+          </section>
+
+          <section className="card glass" aria-label="Rate this session">
+            <h2>Help us improve GD Arena</h2>
+            <Feedback where="report" context={{ topic: config.topic, format: config.format, overall: data.overall }} />
           </section>
 
           <div className="report-actions">

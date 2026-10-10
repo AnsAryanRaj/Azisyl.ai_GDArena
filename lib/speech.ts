@@ -21,20 +21,67 @@ function loadVoices(): Promise<SpeechSynthesisVoice[]> {
   });
 }
 
-/** Give each persona a different voice where the device has enough of them. */
+// Browsers do not say whether a voice is male or female, so we read it from the voice name.
+// Female is checked first because "female" contains "male".
+const FEMALE =
+  /female|woman|samantha|victoria|karen|moira|tessa|veena|fiona|serena|allison|\bava\b|susan|zira|heera|neerja|aria|jenny|sonia|libby|natasha|kalpana|lekha|kanya|ellen|joanna|kendra|kimberly|salli|\bivy\b|emma|\bamy\b|olivia|nicky|\bflo\b|sandy|shelley|grandma|catherine|hazel|swara|aditi|raveena|anjali|isha|martha|kate|zoe|google us english|google हिन्दी|google hindi/i;
+const MALE =
+  /\bmale\b|\bman\b|daniel|\balex\b|\bfred\b|rishi|aaron|\btom\b|oliver|arthur|gordon|ravi|david|\bmark\b|\bguy\b|prabhat|hemant|george|ryan|thomas|\blee\b|eddy|reed|rocko|grandpa|james|brian|matthew|joey|justin|russell|madhur|evan|nathan|google uk english male/i;
+// Novelty voices on macOS that would sound silly in a GD.
+const NOVELTY =
+  /bad news|bahh|bells|boing|bubbles|cellos|jester|organ|superstar|trinoids|whisper|wobble|zarvox|albert|junior|ralph|kathy|good news|hysterical|pipe|deranged|princess/i;
+
+export type Gender = "f" | "m";
+const genderOf = (v: SpeechSynthesisVoice): Gender | "u" =>
+  FEMALE.test(v.name) ? "f" : MALE.test(v.name) ? "m" : "u";
+
+export interface AssignedVoice {
+  voice: SpeechSynthesisVoice | null;
+  pitch: number;
+  rate: number;
+}
+
+/**
+ * Give each persona a voice that matches their gender, different from the others where the
+ * device has enough voices. If no voice of the right gender exists, shift the pitch instead.
+ */
 export async function assignVoices(personas: Persona[]) {
-  const voices = (await loadVoices()).filter((v) => v.lang.toLowerCase().startsWith("en"));
-  const map = new Map<string, SpeechSynthesisVoice | null>();
+  const all = (await loadVoices()).filter(
+    (v) => v.lang.toLowerCase().replace("_", "-").startsWith("en") && !NOVELTY.test(v.name)
+  );
+  const map = new Map<string, AssignedVoice>();
   const used = new Set<string>();
-  for (const p of personas) {
-    let pick: SpeechSynthesisVoice | undefined;
-    for (const lang of p.voice.prefer) {
-      pick = voices.find((v) => v.lang.replace("_", "-").startsWith(lang) && !used.has(v.name));
-      if (pick) break;
+  // The newer macOS "Eddy / Flo / Reed" family sounds more robotic, so use it last.
+  const weak = (v: SpeechSynthesisVoice) => /\(English|eddy|flo|reed|rocko|sandy|shelley|grandma|grandpa/i.test(v.name);
+  const byPref = (p: Persona, input: SpeechSynthesisVoice[]) => {
+    for (const group of [input.filter((v) => !weak(v)), input.filter(weak)]) {
+      for (const lang of p.voice.prefer) {
+        const hit = group.find((v) => v.lang.replace("_", "-").startsWith(lang));
+        if (hit) return hit;
+      }
+      if (group.length) return group[0];
     }
-    pick = pick ?? voices.find((v) => !used.has(v.name)) ?? voices[0];
-    if (pick) used.add(pick.name);
-    map.set(p.id, pick ?? null);
+    return undefined;
+  };
+  for (const p of personas) {
+    const want = p.gender;
+    const fresh = all.filter((v) => !used.has(v.name));
+    let voice =
+      byPref(p, fresh.filter((v) => genderOf(v) === want)) ?? // right gender, not used yet
+      byPref(p, all.filter((v) => genderOf(v) === want)) ?? // right gender, shared
+      byPref(p, fresh.filter((v) => genderOf(v) === "u")) ?? // unknown gender
+      byPref(p, all.filter((v) => genderOf(v) === "u")) ??
+      null;
+    let pitch = p.voice.pitch;
+    if (!voice) {
+      // Only voices of the other gender exist: use one and move the pitch towards the right range.
+      voice = byPref(p, all) ?? null;
+      pitch = want === "f" ? Math.max(pitch, 1.4) : Math.min(pitch, 0.7);
+    } else if (genderOf(voice) === "u") {
+      pitch = want === "f" ? Math.max(pitch, 1.15) : Math.min(pitch, 0.9);
+    }
+    if (voice) used.add(voice.name);
+    map.set(p.id, { voice, pitch, rate: p.voice.rate });
   }
   return map;
 }
@@ -54,7 +101,7 @@ let activeCancel: (() => void) | null = null;
 export function speak(
   text: string,
   persona: Persona,
-  voice: SpeechSynthesisVoice | null | undefined,
+  assigned: AssignedVoice | undefined,
   enabled: boolean
 ): Promise<SpeakResult> {
   return new Promise((resolve) => {
@@ -81,14 +128,15 @@ export function speak(
     if (!enabled || !ttsSupported()) return; // captions only; guard timer ends the turn
 
     const u = new SpeechSynthesisUtterance(text);
+    const voice = assigned?.voice;
     if (voice) {
       u.voice = voice;
       u.lang = voice.lang;
     } else {
       u.lang = "en-IN";
     }
-    u.pitch = persona.voice.pitch;
-    u.rate = persona.voice.rate;
+    u.pitch = assigned?.pitch ?? persona.voice.pitch;
+    u.rate = assigned?.rate ?? persona.voice.rate;
     u.onboundary = (e) => {
       spokenChars = e.charIndex;
     };
