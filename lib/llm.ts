@@ -83,7 +83,13 @@ export async function chatJSON<T>(
         throw err;
       }
       const data = await res.json();
-      return String(data?.choices?.[0]?.message?.content ?? "");
+      const choice = data?.choices?.[0];
+      const raw = choice?.message?.content;
+      // Some models return content as a list of parts instead of a string.
+      const content = Array.isArray(raw)
+        ? raw.map((p: { text?: string } | string) => (typeof p === "string" ? p : p?.text ?? "")).join("")
+        : String(raw ?? "");
+      return { content, finish: String(choice?.finish_reason ?? "") };
     } catch (e) {
       if ((e as Error).name === "AbortError") {
         const err = new Error(`${payload.model} timed out`) as LlmError;
@@ -116,22 +122,42 @@ export async function chatJSON<T>(
       max_tokens: opts.maxTokens ?? 300,
     };
     if (cfg.provider !== "gemini") body.response_format = { type: "json_object" };
-    // Gemini 2.5 Flash "thinks" by default, which adds seconds of delay. Turn it off.
-    if (cfg.provider === "gemini") body.reasoning_effort = model.includes("2.5") ? "none" : "low";
     try {
-      let content: string;
+      // Thinking models spend output tokens on "thinking" first. Keep it minimal for speed.
+      // Older Gemini 2.5 takes "none"; newer ones take "minimal" or "low". Try them in order.
+      // "as-is" sends the request unchanged; undefined is the last try without optional params.
+      const efforts: (string | undefined)[] =
+        cfg.provider === "gemini" ? (model.includes("2.5") ? ["none", undefined] : ["minimal", "low", undefined]) : ["as-is", undefined];
+      let out: { content: string; finish: string } | null = null;
+      for (const effort of efforts) {
+        const payload: Record<string, unknown> = { ...body };
+        if (effort && effort !== "as-is") payload.reasoning_effort = effort;
+        if (!effort) delete payload.response_format;
+        try {
+          out = await call(payload);
+          // Ran out of tokens before writing the answer: try once more with a bigger budget.
+          if (!out.content.trim() || (out.finish === "length" && !out.content.includes("}"))) {
+            payload.max_tokens = Math.min(8192, Number(payload.max_tokens) * 4);
+            out = await call(payload);
+          }
+          break;
+        } catch (e) {
+          if ((e as LlmError).status !== 400 || effort === undefined) throw e;
+        }
+      }
+      if (!out) throw new Error(`${model} gave no reply`);
+      let parsed: T;
       try {
-        content = await call(body);
-      } catch (e) {
-        // Some models reject optional params. Retry once without them.
-        if ((e as LlmError).status !== 400) throw e;
-        const { response_format, reasoning_effort, ...rest } = body;
-        void response_format;
-        void reasoning_effort;
-        content = await call(rest);
+        parsed = parseJSON<T>(out.content);
+      } catch {
+        const err = new Error(
+          `${model} did not return JSON (finish: ${out.finish || "unknown"}): ${out.content.replace(/\s+/g, " ").slice(0, 120) || "empty reply"}`
+        ) as LlmError;
+        err.status = 502;
+        throw err;
       }
       lastGood = model;
-      return parseJSON<T>(content);
+      return parsed;
     } catch (e) {
       lastErr = e as LlmError;
       const st = lastErr.status ?? 0;
