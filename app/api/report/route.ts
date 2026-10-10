@@ -77,6 +77,11 @@ export async function POST(request: Request) {
       }
     }
 
+    // If the model skipped an area, keep the report complete with the basic version.
+    for (const f of fallback.points) {
+      if (!points.some((p) => p.area.toLowerCase() === f.area.toLowerCase())) points.push(f);
+    }
+
     const mo = raw.missedOpening;
     const report: Report = {
       summary: String(raw.summary || "").slice(0, 500) || fallback.summary,

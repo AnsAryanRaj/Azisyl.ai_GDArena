@@ -17,7 +17,9 @@ export function llmConfig() {
   const provider: Provider = raw in PROVIDERS ? (raw as Provider) : "gemini";
   const apiKey = (process.env.LLM_API_KEY || "").trim();
   const model = (process.env.LLM_MODEL || "").trim() || PROVIDERS[provider].model;
-  return { provider, apiKey, model, baseUrl: PROVIDERS[provider].baseUrl, demo: !apiKey };
+  // Optional: any other OpenAI-compatible endpoint (for example OpenRouter).
+  const baseUrl = (process.env.LLM_BASE_URL || "").trim().replace(/\/$/, "") || PROVIDERS[provider].baseUrl;
+  return { provider, apiKey, model, baseUrl, demo: !apiKey };
 }
 
 export interface ChatMessage {
