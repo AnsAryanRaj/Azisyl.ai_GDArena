@@ -20,6 +20,7 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 - "What you could have said" replay: up to three missed openings, each with why it was an opening and a sample line. Play the moment to hear the line and then the suggested answer, and see it highlighted in the transcript
 - Four GD formats: standard, case-based (the moderator reads out a business case), controversial (sharper disagreement, moderator keeps it respectful) and fishbowl (the student watches the AI panel first, then the moderator brings them in)
 - Live spoken discussion: push-to-talk speech recognition with live captions, AI participants speak out loud with different voices, pitch and speed. Voices match each participant's gender (female voices for Ms. Rao, Priya and Meera, male voices for Arjun, Kabir and Rohan), with a pitch fallback on devices that only have one kind of voice
+- Natural AI voices (optional): with an OpenAI key, every AI participant speaks with a natural OpenAI voice that matches their gender and personality, in an Indian English GD tone. The next line's audio is made while the current line plays, so there is no extra wait. If the credits run out, the key is wrong, the call takes longer than 6 seconds or the audio cannot play, the same line is spoken at once with the browser voice and a small note says so. The discussion never stops. A "Natural AI voices" switch in the room settings turns it off
 - Five personalities plus a moderator: the dominator, the data-driven one, the quiet one, the one who drifts, the consensus builder
 - Real back-and-forth: at the start, each AI participant is given its own position on the topic (for, against or middle) and a few arguments. They defend that position all through, counter each other by name, and must answer the student's exact point when the student speaks. Points already made are not repeated
 - The student gets the floor: after two AI lines in a row, the next speaker asks the student a direct question and the room waits. If the student lets it pass, Ms. Rao points out that silence costs marks and asks again. A silent nudge appears after every minute of silence
@@ -36,7 +37,6 @@ GD Arena is a voice-first room where a student practises a campus group discussi
 
 - Deploy to Vercel and add the live URL here
 - Test with a real API key on venue Wi-Fi and tune the AI wait time
-- Optional: premium voices (ElevenLabs or OpenAI TTS) for more realistic speech
 
 **Plan**
 
@@ -47,7 +47,8 @@ Deploy first, then do two full practice runs on a phone and a laptop, then polis
 ```
 Browser (Next.js, React)
  ├─ Web Speech API  → student speech to text (push-to-talk, live captions)
- ├─ speechSynthesis → a different voice for each AI participant
+ ├─ OpenAI TTS (/api/tts) → natural voice per participant, if a key is set
+ ├─ speechSynthesis → browser voices, used when there is no key or TTS fails
  └─ Room engine     → phases, timer, barge-in, prefetching the next turn
         │  POST /api/turn     (who speaks next + what they say)
         │  POST /api/report   (assessment with quote ids)
@@ -66,6 +67,7 @@ Key choices:
 - **One director instead of independent agents.** A single LLM call looks at the transcript and decides who speaks next. That is what stops AI participants from talking over each other, and it lets them respond to each other naturally.
 - **Push-to-talk instead of always-on listening.** Hackathon halls and hostels are noisy. Push-to-talk makes speech recognition reliable and makes barge-in instant: pressing Speak cancels the current AI voice.
 - **Browser speech APIs.** Free, no keys, very low delay, and they work in Chrome and Edge on laptop and Android.
+- **Natural voices with an automatic fallback.** OpenAI TTS sounds far more human, but it costs credits and can fail. So it is tried first, and on a quota error, a wrong key, three failures in a row or a slow reply, the room switches to browser voices by itself. The key stays on the server, and a per-user limit stops anyone from using up the credits.
 - **Prefetching.** While one AI participant is speaking, the next turn is already being generated, so there is almost no dead air.
 - **Quotes are verified on the server.** The report model must cite transcript line ids. The server drops any id that does not exist, so every feedback point links to something the student really heard or said.
 - **Fast, cheap model.** By default the app asks the Gemini API which Flash models the key can use and picks the newest, with thinking kept low. Short turns (under 45 words) keep the reply time low.
@@ -112,6 +114,8 @@ Environment variables (see `.env.example`):
 | `LLM_API_KEY` | API key for that provider. Empty means demo mode |
 | `LLM_MODEL` | Optional model override |
 | `LLM_BASE_URL` | Optional, any other OpenAI-compatible endpoint |
+| `TTS_API_KEY` | Optional OpenAI key for natural voices. Empty means browser voices |
+| `TTS_MODEL` | Optional: `gpt-4o-mini-tts` (default) or `tts-1` |
 
 Deploy: import the repo on Vercel, add the same environment variables, deploy. No test login is needed: use "Try it as a guest", or sign up with any email (accounts stay on that device).
 
@@ -121,6 +125,7 @@ Live URL: _add after deployment_
 
 - Next.js 16, React 19, TypeScript
 - Web Speech API (speech recognition) and speechSynthesis (AI voices), built into the browser
+- OpenAI text to speech (gpt-4o-mini-tts) for natural voices, optional
 - LLM through an OpenAI-compatible API: the newest Gemini Flash model by default (found automatically), Groq Llama 3.3 70B or GPT-4o mini as options
 - Fonts: Instrument Serif and Plus Jakarta Sans (bundled with Fontsource)
 - The campus illustration is generated by `scripts/make_scene.py` as plain SVG

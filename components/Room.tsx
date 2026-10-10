@@ -1,7 +1,20 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { friendLook, MODERATOR, panelFor, personaById } from "@/lib/personas";
-import { assignVoices, estimateMs, Listener, speak, stopSpeaking, sttSupported, type AssignedVoice, type ListenError } from "@/lib/speech";
+import {
+  assignVoices,
+  cloudVoiceAvailable,
+  estimateMs,
+  Listener,
+  onCloudVoiceOff,
+  preloadVoice,
+  setCloudVoiceWanted,
+  speak,
+  stopSpeaking,
+  sttSupported,
+  type AssignedVoice,
+  type ListenError,
+} from "@/lib/speech";
 import type { Line, Plan, RoomConfig, TurnResponse } from "@/lib/types";
 import Avatar from "./Avatar";
 import { LogoMark, MicIcon, StopIcon } from "./Icons";
@@ -51,6 +64,8 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const [voiceOn, setVoiceOn] = useState(true);
   const [nudgeAfter, setNudgeAfter] = useState(60); // seconds of silence before a nudge, 0 = off
   const [readFriends, setReadFriends] = useState(true);
+  const [cloudShown, setCloudShown] = useState(() => cloudVoiceAvailable()); // natural voices set up on the server
+  const [naturalOn, setNaturalOn] = useState(true);
   const [fallbackUsed, setFallbackUsed] = useState(false);
   const [fallbackReason, setFallbackReason] = useState("");
   const [askedBy, setAskedBy] = useState<string | null>(null); // who just asked the student a question
@@ -64,6 +79,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const phaseRef = useRef<Phase>("intro");
   const genRef = useRef(0); // bumps whenever the student barges in or the phase changes
   const busyRef = useRef(false);
+  const readingRef = useRef(0); // non-zero while a friend's point is being read aloud on this device
   const talkingRef = useRef(false);
   const onlineRef = useRef(true);
   const startRef = useRef(0);
@@ -184,7 +200,13 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
       prefetchRef.current = {
         key: linesRef.current.length,
         gen,
-        promise: requestTurn().catch(() => null),
+        promise: requestTurn()
+          .then((r) => {
+            // Make the next line's natural voice while this one is still playing.
+            if (r && settingsRef.current.voiceOn) preloadVoice(r.text, r.speakerId);
+            return r;
+          })
+          .catch(() => null),
       };
     }
 
@@ -210,7 +232,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
 
   const scheduleNext = (delayMs = settingsRef.current.patience * 1000) => {
     clearNext();
-    if (phaseRef.current !== "discussion" || talkingRef.current || busyRef.current || !onlineRef.current) return;
+    if (phaseRef.current !== "discussion" || talkingRef.current || busyRef.current || readingRef.current || !onlineRef.current) return;
     if (friendTalkingRef.current.size > 0) return; // a friend has the floor
     timeoutRef.current = setTimeout(() => {
       timeoutRef.current = null;
@@ -221,7 +243,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
   const timeUp = () => elapsed() / 1000 >= config.minutes * 60;
 
   const runTurn = async () => {
-    if (!mountedRef.current || phaseRef.current !== "discussion" || talkingRef.current || busyRef.current) return;
+    if (!mountedRef.current || phaseRef.current !== "discussion" || talkingRef.current || busyRef.current || readingRef.current) return;
     if (friendTalkingRef.current.size > 0) return;
     if (timeUp()) return startClosing(false);
     if (awaitingAnswerRef.current) {
@@ -359,7 +381,7 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
     setSecondsLeft(0);
     const gen = genRef.current;
     // Wait for any AI line still in flight to finish.
-    while (busyRef.current && mountedRef.current) await new Promise((r) => setTimeout(r, 120));
+    while ((busyRef.current || readingRef.current) && mountedRef.current) await new Promise((r) => setTimeout(r, 120));
     if (gen !== genRef.current) return;
 
     await aiSpeak(
@@ -472,10 +494,12 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
       // Read the friend's point out on the host's device too, so a remote friend is heard by the room.
       const gen = genRef.current;
       setSpeakingId(f.id);
-      busyRef.current = true;
+      // Its own flag: an AI turn still in flight must not clear it and start talking over the friend.
+      const readId = Date.now() + Math.random();
+      readingRef.current = readId;
       const reader = { ...MODERATOR, id: f.id, name: f.name, voice: { pitch: 1, rate: 1.05, prefer: ["en-IN", "en-GB"] } };
       speak(ev.text, reader, undefined, settingsRef.current.voiceOn && settingsRef.current.readFriends).then(() => {
-        busyRef.current = false;
+        if (readingRef.current === readId) readingRef.current = 0;
         if (gen !== genRef.current) return;
         setSpeakingId(null);
         if (phaseRef.current === "discussion") {
@@ -668,11 +692,11 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
         watchUntilRef.current = 0; // watching is over
         setWatchLeft(0);
         inviteDueRef.current = true;
-        if (!busyRef.current && !talkingRef.current) scheduleNext(300);
+        if (!busyRef.current && !readingRef.current && !talkingRef.current) scheduleNext(300);
       }
       const left = config.minutes * 60 - elapsed() / 1000;
       setSecondsLeft(left);
-      if (left <= 0 && !busyRef.current && !talkingRef.current) startClosing(false);
+      if (left <= 0 && !busyRef.current && !readingRef.current && !talkingRef.current) startClosing(false);
       // Silent coaching nudges: visual only, never spoken, at most one every 40 seconds.
       const nudgeAfterS = settingsRef.current.nudgeAfter;
       if (!nudgeAfterS || left <= 20 || talkingRef.current) return;
@@ -714,6 +738,25 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
       window.removeEventListener("offline", onOff);
       window.removeEventListener("online", onOn);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Natural voices: follow the setting, and say so once if they switch off on their own.
+  useEffect(() => {
+    setCloudVoiceWanted(naturalOn);
+  }, [naturalOn]);
+  useEffect(() => {
+    onCloudVoiceOff((reason) => {
+      if (!mountedRef.current) return;
+      setCloudShown(false);
+      showToast(
+        reason === "quota"
+          ? "Natural voice credits ran out. Switched to device voices, the discussion goes on."
+          : "Natural voices are not responding. Switched to device voices, the discussion goes on.",
+        6000
+      );
+    });
+    return () => onCloudVoiceOff(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -906,6 +949,12 @@ export default function Room({ config, onDone, onLeave, shared }: Props) {
               <input type="checkbox" checked={voiceOn} onChange={(e) => setVoiceOn(e.target.checked)} />
               AI voices on
             </label>
+            {cloudShown && (
+              <label>
+                <input type="checkbox" checked={naturalOn} disabled={!voiceOn} onChange={(e) => setNaturalOn(e.target.checked)} />
+                Natural AI voices (OpenAI)
+              </label>
+            )}
             {friends.length > 0 && (
               <label>
                 <input type="checkbox" checked={readFriends} onChange={(e) => setReadFriends(e.target.checked)} />

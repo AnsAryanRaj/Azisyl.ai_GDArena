@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { chatJSON, llmConfig } from "@/lib/llm";
+import { ttsConfig, ttsPaused } from "@/lib/tts";
 
 export const dynamic = "force-dynamic";
 
@@ -7,7 +8,8 @@ export const dynamic = "force-dynamic";
 // so the team can see the exact problem (wrong key, rate limit, model name). Never returns the key.
 export async function GET(request: Request) {
   const { provider, model, demo } = llmConfig();
-  const base = { demo, provider: demo ? null : provider, model: demo ? null : model };
+  // tts: natural OpenAI voices are set up and not paused (quota, wrong key).
+  const base = { demo, provider: demo ? null : provider, model: demo ? null : model, tts: ttsConfig().enabled && !ttsPaused() };
   if (demo || !new URL(request.url).searchParams.has("check")) return NextResponse.json(base);
   const started = Date.now();
   try {
